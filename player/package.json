@@ -1,0 +1,21 @@
+{
+  "name": "prodooh-player",
+  "version": "0.1.0",
+  "description": "Hybrid Ad Player for Raspberry Pi 5 - Chromium kiosk mode",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "build:typecheck": "tsc --noEmit",
+    "test": "vitest --run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest --run --coverage"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.0",
+    "fast-check": "^4.0.0",
+    "@vitest/coverage-v8": "^3.2.0",
+    "jsdom": "^26.0.0",
+    "esbuild": "^0.25.0"
+  }
+}

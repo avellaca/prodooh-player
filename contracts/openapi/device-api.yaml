@@ -1,0 +1,617 @@
+openapi: 3.1.0
+info:
+  title: Prodooh Hybrid Ad Player - Device API
+  version: 0.1.0
+  description: REST API for communication between player devices and the backend.
+
+servers:
+  - url: http://localhost:8000/api/device
+    description: Local development
+
+paths:
+  /auth:
+    post:
+      operationId: deviceAuth
+      summary: Authenticate device
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceAuthRequest'
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceAuthResponse'
+        '401':
+          description: Invalid credentials
+        '404':
+          description: Device not found
+
+  /config:
+    get:
+      operationId: getDeviceConfig
+      summary: Get device configuration
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Device configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceConfigResponse'
+
+  /heartbeat:
+    post:
+      operationId: postHeartbeat
+      summary: Send device heartbeat
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HeartbeatRequest'
+      responses:
+        '200':
+          description: Heartbeat acknowledged
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HeartbeatResponse'
+
+  /playlist:
+    get:
+      operationId: getPlaylist
+      summary: Get playlist manifest
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: If-None-Match
+          in: header
+          description: ETag from a previous response for conditional request
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Playlist manifest
+          headers:
+            ETag:
+              description: Entity tag for conditional requests
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistResponse'
+        '304':
+          description: Not modified (ETag matches current version)
+
+  /playlist/confirm:
+    post:
+      operationId: confirmPlaylist
+      summary: Confirm playlist adoption
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaylistConfirmRequest'
+      responses:
+        '200':
+          description: Confirmation received
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistConfirmResponse'
+
+  /playback-logs:
+    post:
+      operationId: postPlaybackLogs
+      summary: Submit batched playback logs
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaybackLogsRequest'
+      responses:
+        '200':
+          description: Logs received
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaybackLogsResponse'
+
+  /screenshot:
+    post:
+      operationId: uploadScreenshot
+      summary: Upload device screenshot
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image, captured_at]
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: JPEG screenshot image
+                captured_at:
+                  type: string
+                  format: date-time
+                  description: Timestamp when the screenshot was captured
+      responses:
+        '200':
+          description: Screenshot uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScreenshotResponse'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # ─── Shared Types ───────────────────────────────────────────────────────────
+
+    SourceType:
+      type: string
+      enum: [prodooh, gam, url, playlist]
+      description: Available content source types in the loop
+
+    ContentMediaType:
+      type: string
+      enum: [image, video, url, html]
+      description: Content media types supported by the player
+
+    Orientation:
+      type: string
+      enum: [landscape, portrait]
+
+    TransitionType:
+      type: string
+      enum: [cut, fade, slide]
+
+    RotationAngle:
+      type: integer
+      enum: [0, 90, 180, 270]
+
+    SlotConfig:
+      type: object
+      required: [position, source, duration]
+      properties:
+        position:
+          type: integer
+          description: Zero-based position of the slot in the loop
+        source:
+          $ref: '#/components/schemas/SourceType'
+        duration:
+          type: integer
+          description: Duration in seconds for this slot
+
+    LoopConfig:
+      type: object
+      required: [slots, total_duration]
+      properties:
+        slots:
+          type: array
+          items:
+            $ref: '#/components/schemas/SlotConfig'
+        total_duration:
+          type: integer
+          description: Total loop duration in seconds (sum of all slot durations)
+
+    PreparedContent:
+      type: object
+      required: [id, type, mediaUrl, duration, metadata]
+      description: Content prepared and ready for display by the player
+      properties:
+        id:
+          type: string
+        type:
+          $ref: '#/components/schemas/ContentMediaType'
+        mediaUrl:
+          type: string
+          description: URL or local path to the media resource
+        duration:
+          type: number
+          description: Display duration in seconds, resolved from config hierarchy
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Source-specific metadata (e.g., print_id for Prodooh, campaign info)
+
+    DisplayConfig:
+      type: object
+      required: [resolution, orientation, transition]
+      properties:
+        resolution:
+          type: object
+          required: [width, height]
+          properties:
+            width:
+              type: integer
+            height:
+              type: integer
+        orientation:
+          $ref: '#/components/schemas/Orientation'
+        transition:
+          type: object
+          required: [type, duration_ms]
+          properties:
+            type:
+              $ref: '#/components/schemas/TransitionType'
+            duration_ms:
+              type: integer
+              description: Transition animation duration in milliseconds
+
+    ScheduleRule:
+      type: object
+      required: [days, start, end]
+      properties:
+        days:
+          type: array
+          items:
+            type: integer
+            minimum: 0
+            maximum: 6
+          description: Days of week (0=Sunday, 6=Saturday)
+        start:
+          type: string
+          pattern: '^\d{2}:\d{2}$'
+          description: Start time in HH:mm format
+        end:
+          type: string
+          pattern: '^\d{2}:\d{2}$'
+          description: End time in HH:mm format
+
+    ScheduleConfig:
+      type: object
+      required: [timezone, rules]
+      properties:
+        timezone:
+          type: string
+          description: IANA timezone identifier (e.g., America/Bogota)
+        rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScheduleRule'
+
+    StorageStatus:
+      type: object
+      required: [total_mb, available_mb, percent_used]
+      properties:
+        total_mb:
+          type: number
+        available_mb:
+          type: number
+        percent_used:
+          type: number
+          description: Percentage of storage used (0-100)
+
+    # ─── Device Authentication ──────────────────────────────────────────────────
+
+    DeviceAuthRequest:
+      type: object
+      required: [device_token, venue_id]
+      properties:
+        device_token:
+          type: string
+          description: Device credential issued by the backend
+        venue_id:
+          type: string
+          description: Unique identifier for the screen/venue
+
+    DeviceAuthResponse:
+      type: object
+      required: [access_token, expires_in]
+      properties:
+        access_token:
+          type: string
+          description: JWT access token for subsequent API calls
+        expires_in:
+          type: integer
+          description: Token expiry time in seconds
+
+    # ─── Device Configuration ───────────────────────────────────────────────────
+
+    SourcesConfig:
+      type: object
+      required: [prodooh, gam, url, playlist]
+      properties:
+        prodooh:
+          type: object
+          required: [enabled, api_key, network_id]
+          properties:
+            enabled:
+              type: boolean
+            api_key:
+              type: string
+              description: Prodooh Ad Serving API key
+            network_id:
+              type: string
+              description: Prodooh network identifier
+        gam:
+          type: object
+          required: [enabled, ad_tag_url]
+          properties:
+            enabled:
+              type: boolean
+            ad_tag_url:
+              type: string
+              description: Google Ad Manager VAST sandbox ad tag URL
+        url:
+          type: object
+          required: [enabled, urls]
+          properties:
+            enabled:
+              type: boolean
+            urls:
+              type: array
+              items:
+                type: object
+                required: [url, duration]
+                properties:
+                  url:
+                    type: string
+                  duration:
+                    type: integer
+                    description: Display duration in seconds
+                  refresh_interval:
+                    type: integer
+                    description: Page refresh interval in seconds
+        playlist:
+          type: object
+          required: [enabled]
+          properties:
+            enabled:
+              type: boolean
+
+    ContentDurationConfig:
+      type: object
+      required: [default_seconds, source]
+      properties:
+        default_seconds:
+          type: integer
+          description: Default content display duration in seconds
+        source:
+          type: string
+          enum: [screen, group, tenant]
+          description: Level from which the duration setting is inherited
+
+    DeviceConfigResponse:
+      type: object
+      required: [venue_id, tenant_id, loop, sources, display, schedule, content_duration, sync_interval_seconds, heartbeat_interval_seconds]
+      properties:
+        venue_id:
+          type: string
+        tenant_id:
+          type: string
+        loop:
+          $ref: '#/components/schemas/LoopConfig'
+        sources:
+          $ref: '#/components/schemas/SourcesConfig'
+        display:
+          $ref: '#/components/schemas/DisplayConfig'
+        schedule:
+          oneOf:
+            - $ref: '#/components/schemas/ScheduleConfig'
+            - type: 'null'
+          description: Operating schedule, or null if always-on
+        content_duration:
+          $ref: '#/components/schemas/ContentDurationConfig'
+        sync_interval_seconds:
+          type: integer
+          description: How often the player should sync with backend (seconds)
+        heartbeat_interval_seconds:
+          type: integer
+          description: How often the player should send heartbeats (seconds)
+
+    # ─── Heartbeat ──────────────────────────────────────────────────────────────
+
+    DeviceCommand:
+      type: object
+      required: [id, type, payload]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [screenshot, config_update, playlist_update]
+        payload:
+          type: object
+          additionalProperties: true
+          description: Command-specific payload data
+
+    HeartbeatRequest:
+      type: object
+      required: [venue_id, timestamp, current_content, storage, uptime_seconds, playlist_version]
+      properties:
+        venue_id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp
+        current_content:
+          oneOf:
+            - type: object
+              required: [id, source]
+              properties:
+                id:
+                  type: string
+                source:
+                  $ref: '#/components/schemas/SourceType'
+            - type: 'null'
+          description: Currently playing content, or null if idle
+        storage:
+          $ref: '#/components/schemas/StorageStatus'
+        uptime_seconds:
+          type: integer
+          description: Device uptime in seconds since last boot
+        playlist_version:
+          type: string
+          description: Currently active playlist version identifier
+
+    HeartbeatResponse:
+      type: object
+      required: [ack, pending_commands]
+      properties:
+        ack:
+          type: boolean
+          const: true
+        pending_commands:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceCommand'
+
+    # ─── Playlist Sync ──────────────────────────────────────────────────────────
+
+    PlaylistItem:
+      type: object
+      required: [id, type, url]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [image, video, url]
+        url:
+          type: string
+          description: Download URL for media, or target URL for web content
+        duration:
+          type: integer
+          description: Display duration in seconds (optional, uses default if omitted)
+        rotation:
+          $ref: '#/components/schemas/RotationAngle'
+        refresh_interval:
+          type: integer
+          description: Refresh interval in seconds (for URL-type items)
+        checksum:
+          type: string
+          description: SHA-256 checksum for media file integrity verification
+
+    PlaylistResponse:
+      type: object
+      required: [version, etag, items]
+      properties:
+        version:
+          type: string
+          description: Playlist version identifier
+        etag:
+          type: string
+          description: ETag for conditional request support
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlaylistItem'
+
+    PlaylistConfirmRequest:
+      type: object
+      required: [version, status]
+      properties:
+        version:
+          type: string
+          description: Version being confirmed
+        status:
+          type: string
+          enum: [adopted, failed]
+          description: Whether the playlist was successfully adopted
+        error:
+          type: string
+          description: Error description when status is 'failed'
+
+    PlaylistConfirmResponse:
+      type: object
+      required: [ack]
+      properties:
+        ack:
+          type: boolean
+          const: true
+
+    # ─── Playback Logs ──────────────────────────────────────────────────────────
+
+    PlaybackLogEntry:
+      type: object
+      required: [id, content_id, source, started_at, ended_at, duration_seconds, result]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique log entry identifier
+        content_id:
+          type: string
+          description: Identifier of the content that was played
+        source:
+          $ref: '#/components/schemas/SourceType'
+        started_at:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp when playback started
+        ended_at:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp when playback ended
+        duration_seconds:
+          type: number
+          description: Actual playback duration in seconds
+        result:
+          type: string
+          enum: [success, failed]
+        failure_reason:
+          type: string
+          description: Reason for failure (only when result is 'failed')
+
+    PlaybackLogsRequest:
+      type: object
+      required: [logs]
+      properties:
+        logs:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlaybackLogEntry'
+
+    PlaybackLogsResponse:
+      type: object
+      required: [received, ack_ids]
+      properties:
+        received:
+          type: integer
+          description: Number of log entries received
+        ack_ids:
+          type: array
+          items:
+            type: string
+          description: IDs of acknowledged log entries
+
+    # ─── Screenshot ─────────────────────────────────────────────────────────────
+
+    ScreenshotResponse:
+      type: object
+      required: [id, url]
+      properties:
+        id:
+          type: string
+          description: Screenshot identifier
+        url:
+          type: string
+          description: URL where the screenshot can be accessed
