@@ -173,14 +173,14 @@ This plan implements the Hybrid Ad Player system as a monorepo with three direct
     - Validate video rotation restrictions (not allowed if in active playlist)
     - _Requirements: 24.1, 24.2, 24.5_
 
-- [ ] 8. Backend: Device communication APIs
-  - [~] 8.1 Implement ConfigSyncController (GET /api/device/config)
+- [x] 8. Backend: Device communication APIs
+  - [x] 8.1 Implement ConfigSyncController (GET /api/device/config)
     - Serve full device config: loop config, sources config, display settings, schedule, sync intervals
     - Resolve duration using hierarchy: screen > group > tenant
     - Include all source credentials relevant to the device's tenant
     - _Requirements: 7.1, 15.4, 16.1, 1.2, 1.3_
 
-  - [~] 8.2 Implement HeartbeatController (POST /api/device/heartbeat)
+  - [x] 8.2 Implement HeartbeatController (POST /api/device/heartbeat)
     - Receive heartbeat with current_content, storage status, uptime, playlist_version
     - Update screen last_heartbeat and status
     - Return pending device commands in response
@@ -191,43 +191,43 @@ This plan implements the Hybrid Ad Player system as a monorepo with three direct
     - Generate random heartbeat timestamps and thresholds; verify state transitions
     - **Validates: Requirements 8.2**
 
-  - [~] 8.4 Implement PlaylistSyncController (GET/POST /api/device/playlist)
+  - [x] 8.4 Implement PlaylistSyncController (GET/POST /api/device/playlist)
     - Serve playlist manifest with ETag support (304 Not Modified)
     - Include item details: type, URL, duration, rotation, checksum
     - Receive adoption confirmation (POST /api/device/playlist/confirm)
     - _Requirements: 4.4, 9.1, 9.2, 9.3_
 
-  - [~] 8.5 Implement PlaybackLogController (POST /api/device/playback-logs)
+  - [x] 8.5 Implement PlaybackLogController (POST /api/device/playback-logs)
     - Receive batched playback log entries from device
     - Validate required fields: content_id, source, timestamps, duration, result
     - Acknowledge received entries by ID
     - _Requirements: 18.1, 18.2, 18.5_
 
-  - [~] 8.6 Implement ScreenshotController (POST /api/device/screenshot)
+  - [x] 8.6 Implement ScreenshotController (POST /api/device/screenshot)
     - Receive multipart screenshot upload with captured_at timestamp
     - Store screenshot associated with screen
     - Implement screenshot request command (triggered via device_commands)
     - _Requirements: 17.1, 17.2, 17.3_
 
-  - [~] 8.7 Implement DeviceStatusService with online/offline detection
+  - [x] 8.7 Implement DeviceStatusService with online/offline detection
     - Track device status based on heartbeat intervals
     - Implement grace period logic before marking device as unresponsive
     - Expose status in admin screen list endpoint
     - _Requirements: 8.2_
 
-- [ ] 9. Backend: Analytics and admin query endpoints
-  - [~] 9.1 Implement PlaybackAnalyticsService and query endpoint
+- [x] 9. Backend: Analytics and admin query endpoints
+  - [x] 9.1 Implement PlaybackAnalyticsService and query endpoint
     - Create GET `/api/admin/analytics/playback` with date range, screen, source filters
     - Aggregate spots by screen, by source, by content/campaign
     - Enforce tenant isolation on analytics queries
     - _Requirements: 18.3, 18.4_
 
-  - [~] 9.2 Implement screenshot viewing with tenant isolation
+  - [x] 9.2 Implement screenshot viewing with tenant isolation
     - Create GET endpoint for admin to view screenshots of their own screens
     - Super-admin can view all; tenant-admin only their own
     - _Requirements: 17.4, 17.5_
 
-- [~] 10. Checkpoint - Backend APIs complete
+- [x] 10. Checkpoint - Backend APIs complete
   - Ensure all backend endpoints respond correctly, migrations run, tenant isolation works, all backend tests pass. Ask the user if questions arise.
 
 - [ ] 11. Player: Local storage layer and configuration

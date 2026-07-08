@@ -161,7 +161,16 @@ class DeviceAuthTest extends TestCase
         ]);
 
         $response->assertStatus(200);
-        $response->assertJson(['message' => 'Device config endpoint']);
+        $response->assertJsonStructure([
+            'venue_id',
+            'tenant_id',
+            'loop',
+            'sources',
+            'display',
+            'content_duration',
+            'sync_interval_seconds',
+            'heartbeat_interval_seconds',
+        ]);
     }
 
     public function test_protected_route_rejects_expired_token(): void

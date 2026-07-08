@@ -3,12 +3,19 @@
 use App\Http\Controllers\Admin\AdminAuthController;
 use App\Http\Controllers\Admin\ContentController;
 use App\Http\Controllers\Admin\LoopConfigController;
+use App\Http\Controllers\Admin\PlaybackAnalyticsController;
 use App\Http\Controllers\Admin\PlaylistController;
 use App\Http\Controllers\Admin\ScreenController;
 use App\Http\Controllers\Admin\ScreenGroupController;
+use App\Http\Controllers\Admin\ScreenshotViewController;
 use App\Http\Controllers\Admin\SourceToggleController;
 use App\Http\Controllers\Admin\TenantController;
+use App\Http\Controllers\Device\ConfigSyncController;
 use App\Http\Controllers\Device\DeviceAuthController;
+use App\Http\Controllers\Device\HeartbeatController;
+use App\Http\Controllers\Device\PlaybackLogController;
+use App\Http\Controllers\Device\PlaylistSyncController;
+use App\Http\Controllers\Device\ScreenshotController;
 use App\Http\Middleware\DeviceJwtAuth;
 use App\Http\Middleware\TenantScopeMiddleware;
 use Illuminate\Support\Facades\Route;
@@ -29,29 +36,17 @@ Route::prefix('device')->group(function () {
 
     // Protected device routes (JWT auth)
     Route::middleware([DeviceJwtAuth::class])->group(function () {
-        Route::get('/config', function () {
-            return response()->json(['message' => 'Device config endpoint']);
-        })->name('device.config');
+        Route::get('/config', ConfigSyncController::class)->name('device.config');
 
-        Route::post('/heartbeat', function () {
-            return response()->json(['message' => 'Device heartbeat endpoint']);
-        })->name('device.heartbeat');
+        Route::post('/heartbeat', HeartbeatController::class)->name('device.heartbeat');
 
-        Route::get('/playlist', function () {
-            return response()->json(['message' => 'Device playlist endpoint']);
-        })->name('device.playlist');
+        Route::get('/playlist', [PlaylistSyncController::class, 'index'])->name('device.playlist');
 
-        Route::post('/playlist/confirm', function () {
-            return response()->json(['message' => 'Device playlist confirm endpoint']);
-        })->name('device.playlist.confirm');
+        Route::post('/playlist/confirm', [PlaylistSyncController::class, 'confirm'])->name('device.playlist.confirm');
 
-        Route::post('/playback-logs', function () {
-            return response()->json(['message' => 'Device playback logs endpoint']);
-        })->name('device.playback-logs');
+        Route::post('/playback-logs', [PlaybackLogController::class, 'store'])->name('device.playback-logs');
 
-        Route::post('/screenshot', function () {
-            return response()->json(['message' => 'Device screenshot endpoint']);
-        })->name('device.screenshot');
+        Route::post('/screenshot', [ScreenshotController::class, 'store'])->name('device.screenshot');
     });
 });
 
@@ -123,9 +118,10 @@ Route::prefix('admin')->group(function () {
             Route::put('/content/{id}/rotate', [ContentController::class, 'rotate'])->name('admin.content.rotate');
 
             // Analytics
-            Route::get('/analytics/playback', function () {
-                return response()->json(['message' => 'Admin analytics endpoint']);
-            })->name('admin.analytics.playback');
+            Route::get('/analytics/playback', [PlaybackAnalyticsController::class, 'index'])->name('admin.analytics.playback');
+
+            // Screenshot viewing
+            Route::get('/screens/{id}/screenshots', [ScreenshotViewController::class, 'index'])->name('admin.screens.screenshots');
         });
     });
 });
