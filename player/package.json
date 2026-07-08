@@ -11,11 +11,15 @@
     "test:coverage": "vitest --run --coverage"
   },
   "devDependencies": {
-    "typescript": "^5.7.0",
-    "vitest": "^3.2.0",
-    "fast-check": "^4.0.0",
+    "@types/better-sqlite3": "^7.6.13",
     "@vitest/coverage-v8": "^3.2.0",
+    "esbuild": "^0.25.0",
+    "fast-check": "^4.0.0",
     "jsdom": "^26.0.0",
-    "esbuild": "^0.25.0"
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1"
   }
 }
