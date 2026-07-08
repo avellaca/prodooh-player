@@ -14,3 +14,6 @@ export { PlaylistSource } from './PlaylistSource';
 
 export { ProDoohSource } from './ProDoohSource';
 export type { ProDoohSourceConfig, ProDoohAdResponse } from './ProDoohSource';
+
+export { UrlSource } from './UrlSource';
+export type { UrlConfig, UrlSourceConfig } from './UrlSource';
