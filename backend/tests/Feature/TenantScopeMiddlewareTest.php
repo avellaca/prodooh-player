@@ -47,7 +47,7 @@ class TenantScopeMiddlewareTest extends TestCase
 
         $response->assertOk();
 
-        $screens = $response->json();
+        $screens = $response->json('data');
         $this->assertCount(3, $screens);
 
         foreach ($screens as $screen) {
@@ -62,7 +62,7 @@ class TenantScopeMiddlewareTest extends TestCase
 
         $response->assertOk();
 
-        $screens = $response->json();
+        $screens = $response->json('data');
         $this->assertCount(2, $screens);
 
         foreach ($screens as $screen) {
@@ -77,7 +77,7 @@ class TenantScopeMiddlewareTest extends TestCase
 
         $response->assertOk();
 
-        $screens = $response->json();
+        $screens = $response->json('data');
         $this->assertCount(5, $screens);
     }
 
@@ -89,7 +89,7 @@ class TenantScopeMiddlewareTest extends TestCase
 
         $response->assertOk();
 
-        $screens = $response->json();
+        $screens = $response->json('data');
 
         $tenantBIds = Screen::withoutGlobalScopes()
             ->where('tenant_id', $this->tenantB->id)

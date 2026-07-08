@@ -95,11 +95,11 @@ This plan implements the Hybrid Ad Player system as a monorepo with three direct
     - Protect tenant CRUD and cross-tenant endpoints for super-admin only
     - _Requirements: 11.4, 12.3_
 
-- [~] 4. Checkpoint - Database and auth foundation
+- [x] 4. Checkpoint - Database and auth foundation
   - Ensure all migrations run cleanly, models instantiate, auth endpoints return correct responses. Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 5. Backend: Tenant and device management APIs
-  - [~] 5.1 Implement TenantService and admin tenant CRUD endpoints
+- [x] 5. Backend: Tenant and device management APIs
+  - [x] 5.1 Implement TenantService and admin tenant CRUD endpoints
     - Create TenantService with create, update, delete, list methods
     - Generate unique API credential on tenant creation
     - Implement POST/GET/PUT/DELETE `/api/admin/tenants` endpoints
@@ -110,20 +110,20 @@ This plan implements the Hybrid Ad Player system as a monorepo with three direct
     - Generate N tenants and verify all API credentials are pairwise distinct
     - **Validates: Requirements 11.2**
 
-  - [~] 5.3 Implement DeviceService and screen management endpoints
+  - [x] 5.3 Implement DeviceService and screen management endpoints
     - Create DeviceService with register, assign to tenant, update config methods
     - Implement POST/GET/PUT `/api/admin/screens` endpoints
     - Include device_token generation and secure hashing
     - _Requirements: 11.3, 1.2, 20.1_
 
-  - [~] 5.4 Implement ScreenGroupService and group endpoints
+  - [x] 5.4 Implement ScreenGroupService and group endpoints
     - Create ScreenGroupService with CRUD and screen assignment
     - Implement POST/PUT `/api/admin/groups` and screen assignment
     - Implement config inheritance (duration, schedule, orientation from group)
     - _Requirements: 15.2, 15.8, 16.7, 20.4_
 
-- [ ] 6. Backend: Loop configuration and source toggle APIs
-  - [~] 6.1 Implement LoopConfigService and loop configuration endpoint
+- [x] 6. Backend: Loop configuration and source toggle APIs
+  - [x] 6.1 Implement LoopConfigService and loop configuration endpoint
     - Create LoopConfigService with slot count, duration per slot, source assignment
     - Implement PUT `/api/admin/screens/{id}/loop` endpoint
     - Default config: 4 slots x 10s, one per source (25% SOV each)
@@ -135,7 +135,7 @@ This plan implements the Hybrid Ad Player system as a monorepo with three direct
     - Generate random source weights summing to N slots; verify slot array has exact counts
     - **Validates: Requirements 7.2, 7.7**
 
-  - [~] 6.3 Implement SourceToggleService and source enable/disable
+  - [x] 6.3 Implement SourceToggleService and source enable/disable
     - Create SourceToggleService that enables/disables sources per screen
     - Reassign disabled source slots to playlist local
     - Implement as part of screen config update endpoint
@@ -146,8 +146,8 @@ This plan implements the Hybrid Ad Player system as a monorepo with three direct
     - Toggle source off → verify all its slots become playlist; total slot count unchanged
     - **Validates: Requirements 7.6, 10.2**
 
-- [ ] 7. Backend: Content library and playlist management
-  - [~] 7.1 Implement ContentValidationPipeline and content upload
+- [x] 7. Backend: Content library and playlist management
+  - [x] 7.1 Implement ContentValidationPipeline and content upload
     - Create FormatValidator, CodecValidator, ResolutionValidator, FileSizeValidator, OrientationValidator
     - Create ContentLibraryService with upload, validate, store, delete
     - Implement POST/GET/DELETE `/api/admin/content` endpoints
@@ -159,7 +159,7 @@ This plan implements the Hybrid Ad Player system as a monorepo with three direct
     - Generate random file metadata combinations; verify acceptance iff all criteria met
     - **Validates: Requirements 21.1, 21.2, 21.3, 21.4, 21.5**
 
-  - [~] 7.3 Implement PlaylistService and playlist CRUD endpoints
+  - [x] 7.3 Implement PlaylistService and playlist CRUD endpoints
     - Create PlaylistService with create, update items, assign to screens, version management
     - Implement GET/POST/PUT `/api/admin/playlists` endpoints
     - Implement POST `/api/admin/playlists/{id}/assign` for multi-screen assignment
@@ -167,7 +167,7 @@ This plan implements the Hybrid Ad Player system as a monorepo with three direct
     - Handle cascade delete when content removed from library
     - _Requirements: 9.1, 26.3, 26.4, 26.6, 26.7, 28.1, 28.2, 28.6_
 
-  - [~] 7.4 Implement content rotation metadata endpoint
+  - [x] 7.4 Implement content rotation metadata endpoint
     - Implement PUT `/api/admin/content/{id}/rotate` for setting rotation (0°, 90°, 180°, 270°)
     - Store rotation as metadata without modifying original file
     - Validate video rotation restrictions (not allowed if in active playlist)

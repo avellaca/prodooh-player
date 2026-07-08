@@ -1,6 +1,13 @@
 <?php
 
 use App\Http\Controllers\Admin\AdminAuthController;
+use App\Http\Controllers\Admin\ContentController;
+use App\Http\Controllers\Admin\LoopConfigController;
+use App\Http\Controllers\Admin\PlaylistController;
+use App\Http\Controllers\Admin\ScreenController;
+use App\Http\Controllers\Admin\ScreenGroupController;
+use App\Http\Controllers\Admin\SourceToggleController;
+use App\Http\Controllers\Admin\TenantController;
 use App\Http\Controllers\Device\DeviceAuthController;
 use App\Http\Middleware\DeviceJwtAuth;
 use App\Http\Middleware\TenantScopeMiddleware;
@@ -72,43 +79,48 @@ Route::prefix('admin')->group(function () {
 
         // Tenant management — super-admin only
         Route::middleware('role:super_admin')->group(function () {
-            Route::get('/tenants', function () {
-                return response()->json(['message' => 'Admin tenants endpoint']);
-            })->name('admin.tenants.index');
-
-            Route::post('/tenants', function () {
-                return response()->json(['message' => 'Admin tenant created'], 201);
-            })->name('admin.tenants.store');
-
-            Route::get('/tenants/{id}', function (string $id) {
-                return response()->json(['message' => 'Admin tenant details', 'id' => $id]);
-            })->name('admin.tenants.show');
-
-            Route::put('/tenants/{id}', function (string $id) {
-                return response()->json(['message' => 'Admin tenant updated', 'id' => $id]);
-            })->name('admin.tenants.update');
-
-            Route::delete('/tenants/{id}', function (string $id) {
-                return response()->json(['message' => 'Admin tenant deleted', 'id' => $id]);
-            })->name('admin.tenants.destroy');
+            Route::get('/tenants', [TenantController::class, 'index'])->name('admin.tenants.index');
+            Route::post('/tenants', [TenantController::class, 'store'])->name('admin.tenants.store');
+            Route::get('/tenants/{id}', [TenantController::class, 'show'])->name('admin.tenants.show');
+            Route::put('/tenants/{id}', [TenantController::class, 'update'])->name('admin.tenants.update');
+            Route::delete('/tenants/{id}', [TenantController::class, 'destroy'])->name('admin.tenants.destroy');
         });
 
         // Routes accessible by both super-admin and tenant-admin
         Route::middleware('role:super_admin,tenant_admin')->group(function () {
             // Screen management
-            Route::get('/screens', function () {
-                return response()->json(\App\Models\Screen::all());
-            })->name('admin.screens.index');
+            Route::get('/screens', [ScreenController::class, 'index'])->name('admin.screens.index');
+            Route::post('/screens', [ScreenController::class, 'store'])->name('admin.screens.store');
+            Route::get('/screens/{id}', [ScreenController::class, 'show'])->name('admin.screens.show');
+            Route::put('/screens/{id}', [ScreenController::class, 'update'])->name('admin.screens.update');
+
+            // Screen group management
+            Route::get('/groups', [ScreenGroupController::class, 'index'])->name('admin.groups.index');
+            Route::post('/groups', [ScreenGroupController::class, 'store'])->name('admin.groups.store');
+            Route::get('/groups/{id}', [ScreenGroupController::class, 'show'])->name('admin.groups.show');
+            Route::put('/groups/{id}', [ScreenGroupController::class, 'update'])->name('admin.groups.update');
+            Route::delete('/groups/{id}', [ScreenGroupController::class, 'destroy'])->name('admin.groups.destroy');
+            Route::post('/groups/{id}/screens', [ScreenGroupController::class, 'assignScreens'])->name('admin.groups.assignScreens');
+
+            // Loop configuration
+            Route::put('/screens/{id}/loop', [LoopConfigController::class, 'update'])->name('admin.screens.loop.update');
+
+            // Source toggle (enable/disable sources per screen)
+            Route::put('/screens/{id}/sources', [SourceToggleController::class, 'update'])->name('admin.screens.sources.update');
 
             // Playlist management
-            Route::get('/playlists', function () {
-                return response()->json(['message' => 'Admin playlists endpoint']);
-            })->name('admin.playlists.index');
+            Route::get('/playlists', [PlaylistController::class, 'index'])->name('admin.playlists.index');
+            Route::post('/playlists', [PlaylistController::class, 'store'])->name('admin.playlists.store');
+            Route::get('/playlists/{id}', [PlaylistController::class, 'show'])->name('admin.playlists.show');
+            Route::put('/playlists/{id}', [PlaylistController::class, 'update'])->name('admin.playlists.update');
+            Route::delete('/playlists/{id}', [PlaylistController::class, 'destroy'])->name('admin.playlists.destroy');
+            Route::post('/playlists/{id}/assign', [PlaylistController::class, 'assign'])->name('admin.playlists.assign');
 
             // Content library
-            Route::get('/content', function () {
-                return response()->json(['message' => 'Admin content endpoint']);
-            })->name('admin.content.index');
+            Route::get('/content', [ContentController::class, 'index'])->name('admin.content.index');
+            Route::post('/content', [ContentController::class, 'store'])->name('admin.content.store');
+            Route::delete('/content/{id}', [ContentController::class, 'destroy'])->name('admin.content.destroy');
+            Route::put('/content/{id}/rotate', [ContentController::class, 'rotate'])->name('admin.content.rotate');
 
             // Analytics
             Route::get('/analytics/playback', function () {

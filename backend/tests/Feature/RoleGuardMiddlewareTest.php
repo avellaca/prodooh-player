@@ -44,31 +44,37 @@ class RoleGuardMiddlewareTest extends TestCase
     public function test_super_admin_can_create_tenant(): void
     {
         $response = $this->withHeader('Authorization', 'Bearer ' . $this->superAdminToken)
-            ->postJson('/api/admin/tenants');
+            ->postJson('/api/admin/tenants', ['name' => 'Test Tenant']);
 
         $response->assertStatus(201);
     }
 
     public function test_super_admin_can_view_tenant(): void
     {
+        $tenant = Tenant::factory()->create();
+
         $response = $this->withHeader('Authorization', 'Bearer ' . $this->superAdminToken)
-            ->getJson('/api/admin/tenants/some-uuid');
+            ->getJson("/api/admin/tenants/{$tenant->id}");
 
         $response->assertOk();
     }
 
     public function test_super_admin_can_update_tenant(): void
     {
+        $tenant = Tenant::factory()->create();
+
         $response = $this->withHeader('Authorization', 'Bearer ' . $this->superAdminToken)
-            ->putJson('/api/admin/tenants/some-uuid');
+            ->putJson("/api/admin/tenants/{$tenant->id}", ['name' => 'Updated']);
 
         $response->assertOk();
     }
 
     public function test_super_admin_can_delete_tenant(): void
     {
+        $tenant = Tenant::factory()->create();
+
         $response = $this->withHeader('Authorization', 'Bearer ' . $this->superAdminToken)
-            ->deleteJson('/api/admin/tenants/some-uuid');
+            ->deleteJson("/api/admin/tenants/{$tenant->id}");
 
         $response->assertOk();
     }
