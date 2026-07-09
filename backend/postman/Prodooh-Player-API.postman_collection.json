@@ -1,0 +1,390 @@
+{
+  "info": {
+    "name": "Prodooh Player API",
+    "description": "Collection for testing the Prodooh Hybrid Ad Player backend API.\n\nSetup:\n1. Run 'Admin Login' first to get a Bearer token\n2. The token is auto-saved to the collection variable {{admin_token}}\n3. All other requests use {{admin_token}} automatically",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000/api" },
+    { "key": "admin_token", "value": "" },
+    { "key": "device_jwt", "value": "" },
+    { "key": "tenant_a_id", "value": "" },
+    { "key": "screen_id", "value": "" },
+    { "key": "playlist_id", "value": "" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{admin_token}}" }]
+  },
+  "item": [
+    {
+      "name": "1. Auth",
+      "item": [
+        {
+          "name": "Admin Login (Super Admin)",
+          "event": [{ "listen": "test", "script": { "exec": ["var jsonData = pm.response.json();", "if (jsonData.token) { pm.collectionVariables.set('admin_token', jsonData.token); }"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin@prodooh.com\",\n  \"password\": \"password\"\n}" },
+            "url": { "raw": "{{base_url}}/admin/login", "host": ["{{base_url}}"], "path": ["admin", "login"] }
+          }
+        },
+        {
+          "name": "Admin Login (Tenant A)",
+          "event": [{ "listen": "test", "script": { "exec": ["var jsonData = pm.response.json();", "if (jsonData.token) { pm.collectionVariables.set('admin_token', jsonData.token); }"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin-a@prodooh.com\",\n  \"password\": \"password\"\n}" },
+            "url": { "raw": "{{base_url}}/admin/login", "host": ["{{base_url}}"], "path": ["admin", "login"] }
+          }
+        },
+        {
+          "name": "Admin Login (Tenant B)",
+          "event": [{ "listen": "test", "script": { "exec": ["var jsonData = pm.response.json();", "if (jsonData.token) { pm.collectionVariables.set('admin_token', jsonData.token); }"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin-b@mediaowner.com\",\n  \"password\": \"password\"\n}" },
+            "url": { "raw": "{{base_url}}/admin/login", "host": ["{{base_url}}"], "path": ["admin", "login"] }
+          }
+        },
+        {
+          "name": "Get Current User",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/admin/user", "host": ["{{base_url}}"], "path": ["admin", "user"] }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/admin/logout", "host": ["{{base_url}}"], "path": ["admin", "logout"] }
+          }
+        },
+        {
+          "name": "Device Auth",
+          "event": [{ "listen": "test", "script": { "exec": ["var jsonData = pm.response.json();", "if (jsonData.token) { pm.collectionVariables.set('device_jwt', jsonData.token); }"] } }],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"device_token\": \"pilot-token-tenant-a-screen-1\",\n  \"venue_id\": \"prodooh-oficina-totem-1\"\n}" },
+            "url": { "raw": "{{base_url}}/device/auth", "host": ["{{base_url}}"], "path": ["device", "auth"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Tenants (Super Admin)",
+      "item": [
+        {
+          "name": "List Tenants",
+          "event": [{ "listen": "test", "script": { "exec": ["var jsonData = pm.response.json();", "if (jsonData.data && jsonData.data.length > 0) { pm.collectionVariables.set('tenant_a_id', jsonData.data[0].id); }"] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/admin/tenants", "host": ["{{base_url}}"], "path": ["admin", "tenants"] }
+          }
+        },
+        {
+          "name": "Create Tenant",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"New Media Owner\"\n}" },
+            "url": { "raw": "{{base_url}}/admin/tenants", "host": ["{{base_url}}"], "path": ["admin", "tenants"] }
+          }
+        },
+        {
+          "name": "Get Tenant",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/admin/tenants/{{tenant_a_id}}", "host": ["{{base_url}}"], "path": ["admin", "tenants", "{{tenant_a_id}}"] }
+          }
+        },
+        {
+          "name": "Update Tenant",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Updated Tenant Name\",\n  \"default_duration_seconds\": 12\n}" },
+            "url": { "raw": "{{base_url}}/admin/tenants/{{tenant_a_id}}", "host": ["{{base_url}}"], "path": ["admin", "tenants", "{{tenant_a_id}}"] }
+          }
+        },
+        {
+          "name": "Delete Tenant",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/admin/tenants/{{tenant_a_id}}", "host": ["{{base_url}}"], "path": ["admin", "tenants", "{{tenant_a_id}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Screens",
+      "item": [
+        {
+          "name": "List Screens",
+          "event": [{ "listen": "test", "script": { "exec": ["var jsonData = pm.response.json();", "if (jsonData.data && jsonData.data.length > 0) { pm.collectionVariables.set('screen_id', jsonData.data[0].id); }"] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/admin/screens", "host": ["{{base_url}}"], "path": ["admin", "screens"] }
+          }
+        },
+        {
+          "name": "Get Screen",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/admin/screens/{{screen_id}}", "host": ["{{base_url}}"], "path": ["admin", "screens", "{{screen_id}}"] }
+          }
+        },
+        {
+          "name": "Create Screen",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"tenant_id\": \"{{tenant_a_id}}\",\n  \"venue_id\": \"new-screen-venue-01\",\n  \"name\": \"New Test Screen\",\n  \"orientation\": \"landscape\",\n  \"resolution_width\": 1920,\n  \"resolution_height\": 1080\n}" },
+            "url": { "raw": "{{base_url}}/admin/screens", "host": ["{{base_url}}"], "path": ["admin", "screens"] }
+          }
+        },
+        {
+          "name": "Update Screen",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Updated Screen Name\",\n  \"duration_seconds\": 15\n}" },
+            "url": { "raw": "{{base_url}}/admin/screens/{{screen_id}}", "host": ["{{base_url}}"], "path": ["admin", "screens", "{{screen_id}}"] }
+          }
+        },
+        {
+          "name": "Update Loop Config",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"slots\": [\n    { \"position\": 0, \"source\": \"prodooh\", \"duration\": 10 },\n    { \"position\": 1, \"source\": \"gam\", \"duration\": 10 },\n    { \"position\": 2, \"source\": \"url\", \"duration\": 10 },\n    { \"position\": 3, \"source\": \"playlist\", \"duration\": 10 },\n    { \"position\": 4, \"source\": \"prodooh\", \"duration\": 10 },\n    { \"position\": 5, \"source\": \"playlist\", \"duration\": 10 }\n  ]\n}" },
+            "url": { "raw": "{{base_url}}/admin/screens/{{screen_id}}/loop", "host": ["{{base_url}}"], "path": ["admin", "screens", "{{screen_id}}", "loop"] }
+          }
+        },
+        {
+          "name": "Toggle Sources (Disable GAM)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"prodooh\": { \"enabled\": true },\n  \"gam\": { \"enabled\": false },\n  \"url\": { \"enabled\": true },\n  \"playlist\": { \"enabled\": true }\n}" },
+            "url": { "raw": "{{base_url}}/admin/screens/{{screen_id}}/sources", "host": ["{{base_url}}"], "path": ["admin", "screens", "{{screen_id}}", "sources"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Screen Groups",
+      "item": [
+        {
+          "name": "List Groups",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/admin/groups", "host": ["{{base_url}}"], "path": ["admin", "groups"] }
+          }
+        },
+        {
+          "name": "Create Group",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Lobby Screens\",\n  \"duration_seconds\": 12,\n  \"orientation\": \"portrait\",\n  \"resolution_width\": 1080,\n  \"resolution_height\": 1920\n}" },
+            "url": { "raw": "{{base_url}}/admin/groups", "host": ["{{base_url}}"], "path": ["admin", "groups"] }
+          }
+        },
+        {
+          "name": "Assign Screens to Group",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"screen_ids\": [\"{{screen_id}}\"]\n}" },
+            "url": { "raw": "{{base_url}}/admin/groups/{{group_id}}/screens", "host": ["{{base_url}}"], "path": ["admin", "groups", "{{group_id}}", "screens"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Playlists",
+      "item": [
+        {
+          "name": "List Playlists",
+          "event": [{ "listen": "test", "script": { "exec": ["var jsonData = pm.response.json();", "if (jsonData.data && jsonData.data.length > 0) { pm.collectionVariables.set('playlist_id', jsonData.data[0].id); }"] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/admin/playlists", "host": ["{{base_url}}"], "path": ["admin", "playlists"] }
+          }
+        },
+        {
+          "name": "Create Playlist",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"My New Playlist\",\n  \"items\": [\n    { \"type\": \"url\", \"url\": \"https://example.com/ad-page\", \"duration_seconds\": 15, \"position\": 0 }\n  ]\n}" },
+            "url": { "raw": "{{base_url}}/admin/playlists", "host": ["{{base_url}}"], "path": ["admin", "playlists"] }
+          }
+        },
+        {
+          "name": "Get Playlist",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/admin/playlists/{{playlist_id}}", "host": ["{{base_url}}"], "path": ["admin", "playlists", "{{playlist_id}}"] }
+          }
+        },
+        {
+          "name": "Update Playlist Items",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Updated Playlist\",\n  \"items\": [\n    { \"type\": \"url\", \"url\": \"https://example.com/page1\", \"duration_seconds\": 10, \"position\": 0 },\n    { \"type\": \"url\", \"url\": \"https://example.com/page2\", \"duration_seconds\": 15, \"position\": 1 }\n  ]\n}" },
+            "url": { "raw": "{{base_url}}/admin/playlists/{{playlist_id}}", "host": ["{{base_url}}"], "path": ["admin", "playlists", "{{playlist_id}}"] }
+          }
+        },
+        {
+          "name": "Assign Playlist to Screens",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"screen_ids\": [\"{{screen_id}}\"]\n}" },
+            "url": { "raw": "{{base_url}}/admin/playlists/{{playlist_id}}/assign", "host": ["{{base_url}}"], "path": ["admin", "playlists", "{{playlist_id}}", "assign"] }
+          }
+        },
+        {
+          "name": "Delete Playlist",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/admin/playlists/{{playlist_id}}", "host": ["{{base_url}}"], "path": ["admin", "playlists", "{{playlist_id}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Content Library",
+      "item": [
+        {
+          "name": "List Content",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/admin/content", "host": ["{{base_url}}"], "path": ["admin", "content"] }
+          }
+        },
+        {
+          "name": "Upload Content (Image)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "formdata", "formdata": [{ "key": "file", "type": "file", "src": "" }, { "key": "filename", "value": "test-image.jpg", "type": "text" }] },
+            "url": { "raw": "{{base_url}}/admin/content", "host": ["{{base_url}}"], "path": ["admin", "content"] }
+          }
+        },
+        {
+          "name": "Rotate Content",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"rotation\": 90\n}" },
+            "url": { "raw": "{{base_url}}/admin/content/{{content_id}}/rotate", "host": ["{{base_url}}"], "path": ["admin", "content", "{{content_id}}", "rotate"] }
+          }
+        },
+        {
+          "name": "Preview Content",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/admin/content/{{content_id}}/preview?screen_id={{screen_id}}", "host": ["{{base_url}}"], "path": ["admin", "content", "{{content_id}}", "preview"], "query": [{ "key": "screen_id", "value": "{{screen_id}}" }] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Device APIs (Player → Backend)",
+      "item": [
+        {
+          "name": "Get Device Config",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{device_jwt}}" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/device/config", "host": ["{{base_url}}"], "path": ["device", "config"] }
+          }
+        },
+        {
+          "name": "Send Heartbeat",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{device_jwt}}" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"venue_id\": \"prodooh-oficina-totem-1\",\n  \"timestamp\": \"2024-06-15T12:00:00.000Z\",\n  \"current_content\": { \"id\": \"content-123\", \"source\": \"playlist\" },\n  \"storage\": { \"total_mb\": 32000, \"available_mb\": 15000, \"percent_used\": 53 },\n  \"uptime_seconds\": 3600,\n  \"playlist_version\": \"v1.0.0\"\n}" },
+            "url": { "raw": "{{base_url}}/device/heartbeat", "host": ["{{base_url}}"], "path": ["device", "heartbeat"] }
+          }
+        },
+        {
+          "name": "Get Playlist (ETag support)",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{device_jwt}}" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/device/playlist", "host": ["{{base_url}}"], "path": ["device", "playlist"] }
+          }
+        },
+        {
+          "name": "Confirm Playlist Adoption",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{device_jwt}}" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"version\": \"v1.0.0\",\n  \"status\": \"adopted\"\n}" },
+            "url": { "raw": "{{base_url}}/device/playlist/confirm", "host": ["{{base_url}}"], "path": ["device", "playlist", "confirm"] }
+          }
+        },
+        {
+          "name": "Send Playback Logs",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{device_jwt}}" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"logs\": [\n    {\n      \"id\": \"log-001\",\n      \"content_id\": \"content-123\",\n      \"source\": \"prodooh\",\n      \"started_at\": \"2024-06-15T10:00:00.000Z\",\n      \"ended_at\": \"2024-06-15T10:00:10.000Z\",\n      \"duration_seconds\": 10,\n      \"result\": \"success\"\n    },\n    {\n      \"id\": \"log-002\",\n      \"content_id\": \"content-456\",\n      \"source\": \"gam\",\n      \"started_at\": \"2024-06-15T10:00:10.000Z\",\n      \"ended_at\": \"2024-06-15T10:00:20.000Z\",\n      \"duration_seconds\": 10,\n      \"result\": \"failed\",\n      \"failure_reason\": \"VAST timeout\"\n    }\n  ]\n}" },
+            "url": { "raw": "{{base_url}}/device/playback-logs", "host": ["{{base_url}}"], "path": ["device", "playback-logs"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Analytics & Screenshots",
+      "item": [
+        {
+          "name": "Get Playback Analytics",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/admin/analytics/playback?start_date=2024-01-01&end_date=2024-12-31", "host": ["{{base_url}}"], "path": ["admin", "analytics", "playback"], "query": [{ "key": "start_date", "value": "2024-01-01" }, { "key": "end_date", "value": "2024-12-31" }] }
+          }
+        },
+        {
+          "name": "Get Screen Screenshots",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/admin/screens/{{screen_id}}/screenshots", "host": ["{{base_url}}"], "path": ["admin", "screens", "{{screen_id}}", "screenshots"] }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -41,6 +41,16 @@ class Playlist extends Model
     }
 
     /**
+     * Expose playlist_items_count as items_count for the frontend.
+     */
+    protected $appends = ['items_count'];
+
+    public function getItemsCountAttribute(): int
+    {
+        return $this->playlist_items_count ?? $this->playlistItems()->count();
+    }
+
+    /**
      * Get the screens assigned to this playlist.
      */
     public function screens()

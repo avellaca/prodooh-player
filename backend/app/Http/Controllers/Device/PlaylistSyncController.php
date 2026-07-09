@@ -121,11 +121,38 @@ class PlaylistSyncController extends Controller
             return $item->url;
         }
 
-        // For image/video types, generate a download URL from storage_path
-        if ($item->content && $item->content->storage_path) {
-            return Storage::disk('local')->url($item->content->storage_path);
+        // For image/video types, generate a device-accessible download URL
+        if ($item->content) {
+            return url("/api/device/content/{$item->content->id}/file");
         }
 
         return null;
+    }
+
+    /**
+     * GET /api/device/content/{id}/file
+     *
+     * Serve a content file to the device for download.
+     */
+    public function serveContentFile(Request $request, string $id)
+    {
+        $content = \App\Models\Content::find($id);
+
+        if (!$content) {
+            return response()->json(['error' => 'Content not found'], 404);
+        }
+
+        $disk = Storage::disk('local');
+
+        if (!$disk->exists($content->storage_path)) {
+            return response()->json(['error' => 'File not found on storage'], 404);
+        }
+
+        $path = $disk->path($content->storage_path);
+
+        return response()->file($path, [
+            'Content-Type' => $content->mime_type,
+            'Content-Disposition' => 'inline; filename="' . $content->filename . '"',
+        ]);
     }
 }

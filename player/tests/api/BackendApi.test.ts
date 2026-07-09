@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { BackendApi } from '../../src/api/BackendApi';
+import type { TokenStore } from '../../src/api/BackendApi';
 import { BackendApiClient } from '../../src/api/BackendApiClient';
 
 /**
@@ -18,6 +19,20 @@ function createTestJwt(payload: Record<string, unknown>): string {
 // Helper: create a JWT with a specific exp timestamp (in seconds)
 function createJwtWithExp(expSeconds: number): string {
   return createTestJwt({ sub: 'screen-123', exp: expSeconds });
+}
+
+// Helper: in-memory TokenStore for testing persistence
+function createMemoryTokenStore(): TokenStore & { data: Map<string, string> } {
+  const data = new Map<string, string>();
+  return {
+    data,
+    get(key: string): string | null {
+      return data.get(key) ?? null;
+    },
+    set(key: string, value: string): void {
+      data.set(key, value);
+    },
+  };
 }
 
 describe('BackendApi', () => {
@@ -354,6 +369,170 @@ describe('BackendApi', () => {
 
       // No JSON data means auth can't succeed
       expect(result).toBe(false);
+    });
+  });
+
+  describe('Token persistence (TokenStore)', () => {
+    it('should persist token to store after successful authentication', async () => {
+      const expTime = Math.floor(Date.now() / 1000) + 3600;
+      const jwt = createJwtWithExp(expTime);
+
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ access_token: jwt, expires_in: 3600 }),
+      });
+
+      const store = createMemoryTokenStore();
+      const api = new BackendApi({
+        baseUrl: 'http://localhost:8000',
+        venueId: 'venue-001',
+        deviceToken: 'secret-token',
+      }, store);
+
+      await api.authenticate();
+
+      expect(store.data.get('jwt_access_token')).toBe(jwt);
+      expect(store.data.get('jwt_expires_at')).toBe(String(expTime * 1000));
+    });
+
+    it('should restore a valid token from store on construction', async () => {
+      const expTime = Math.floor(Date.now() / 1000) + 3600;
+      const jwt = createJwtWithExp(expTime);
+
+      const store = createMemoryTokenStore();
+      store.set('jwt_access_token', jwt);
+      store.set('jwt_expires_at', String(expTime * 1000));
+
+      const api = new BackendApi({
+        baseUrl: 'http://localhost:8000',
+        venueId: 'venue-001',
+        deviceToken: 'secret-token',
+      }, store);
+
+      // Should be authenticated immediately without a network call
+      expect(api.isAuthenticated()).toBe(true);
+      expect(api.getToken()).toBe(jwt);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('should not restore an expired token from store', async () => {
+      const expTime = Math.floor(Date.now() / 1000) - 60; // expired 60s ago
+      const jwt = createJwtWithExp(expTime);
+
+      const store = createMemoryTokenStore();
+      store.set('jwt_access_token', jwt);
+      store.set('jwt_expires_at', String(expTime * 1000));
+
+      const api = new BackendApi({
+        baseUrl: 'http://localhost:8000',
+        venueId: 'venue-001',
+        deviceToken: 'secret-token',
+      }, store);
+
+      expect(api.isAuthenticated()).toBe(false);
+      expect(api.getToken()).toBeNull();
+    });
+
+    it('should clear persisted token on authentication failure', async () => {
+      const expTime = Math.floor(Date.now() / 1000) + 3600;
+      const jwt = createJwtWithExp(expTime);
+
+      const store = createMemoryTokenStore();
+      store.set('jwt_access_token', jwt);
+      store.set('jwt_expires_at', String(expTime * 1000));
+
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 401,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ error: 'Unauthorized' }),
+      });
+
+      const api = new BackendApi({
+        baseUrl: 'http://localhost:8000',
+        venueId: 'venue-001',
+        deviceToken: 'secret-token',
+      }, store);
+
+      // Force a re-auth that fails
+      await api.authenticate();
+
+      expect(store.data.get('jwt_access_token')).toBe('');
+      expect(store.data.get('jwt_expires_at')).toBe('');
+    });
+
+    it('should work without a token store (backward compatible)', async () => {
+      const expTime = Math.floor(Date.now() / 1000) + 3600;
+      const jwt = createJwtWithExp(expTime);
+
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ access_token: jwt, expires_in: 3600 }),
+      });
+
+      // No store passed — should behave as before
+      const api = new BackendApi({
+        baseUrl: 'http://localhost:8000',
+        venueId: 'venue-001',
+        deviceToken: 'secret-token',
+      });
+
+      await api.authenticate();
+
+      expect(api.isAuthenticated()).toBe(true);
+      expect(api.getToken()).toBe(jwt);
+    });
+
+    it('should update persisted token on refresh', async () => {
+      // Start with a token close to expiry
+      const expTime = Math.floor(Date.now() / 1000) + 30; // 30s, below buffer
+      const jwt = createJwtWithExp(expTime);
+
+      const store = createMemoryTokenStore();
+      store.set('jwt_access_token', jwt);
+      store.set('jwt_expires_at', String(expTime * 1000));
+
+      const api = new BackendApi({
+        baseUrl: 'http://localhost:8000',
+        venueId: 'venue-001',
+        deviceToken: 'secret-token',
+      }, store);
+
+      // Mock a refresh that returns a new token
+      const newExpTime = Math.floor(Date.now() / 1000) + 7200;
+      const newJwt = createJwtWithExp(newExpTime);
+
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ access_token: newJwt, expires_in: 7200 }),
+      });
+
+      await api.refreshIfNeeded();
+
+      expect(store.data.get('jwt_access_token')).toBe(newJwt);
+      expect(store.data.get('jwt_expires_at')).toBe(String(newExpTime * 1000));
+    });
+
+    it('should handle corrupt/invalid data in store gracefully', () => {
+      const store = createMemoryTokenStore();
+      store.set('jwt_access_token', 'some-token');
+      store.set('jwt_expires_at', 'not-a-number');
+
+      const api = new BackendApi({
+        baseUrl: 'http://localhost:8000',
+        venueId: 'venue-001',
+        deviceToken: 'secret-token',
+      }, store);
+
+      // Should not crash, and should not be authenticated
+      expect(api.isAuthenticated()).toBe(false);
+      expect(api.getToken()).toBeNull();
     });
   });
 });

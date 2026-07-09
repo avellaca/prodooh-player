@@ -30,14 +30,13 @@ class TenantScopeMiddleware
 
         if ($user->isTenantAdmin()) {
             // Bind the current tenant ID into the container for the request lifecycle.
-            // This allows services and scopes to resolve the tenant context without
-            // re-querying the authenticated user.
             app()->instance('current_tenant_id', $user->tenant_id);
         }
 
-        // Super-admins pass through without any tenant context being set.
-        // The BelongsToTenant trait's global scope checks auth()->user()->isSuperAdmin()
-        // and skips filtering accordingly.
+        // Super-admin with tenant_id query parameter: scope data to that tenant
+        if ($user->isSuperAdmin() && $request->query('tenant_id')) {
+            app()->instance('current_tenant_id', $request->query('tenant_id'));
+        }
 
         return $next($request);
     }

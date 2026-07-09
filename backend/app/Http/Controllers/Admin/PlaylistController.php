@@ -34,13 +34,22 @@ class PlaylistController extends Controller
     {
         $request->validate([
             'name' => ['required', 'string', 'max:255'],
+            'items' => ['sometimes', 'array'],
+            'items.*.type' => ['required_with:items', 'string', 'in:image,video,url,content'],
+            'items.*.content_id' => ['sometimes', 'nullable', 'string'],
+            'items.*.url' => ['sometimes', 'nullable', 'string'],
+            'items.*.duration_seconds' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            'items.*.position' => ['required_with:items', 'integer', 'min:0'],
         ]);
 
         $user = $request->user();
         $tenantId = $user->tenant_id;
 
-        // Super-admin must specify a tenant
+        // Super-admin must specify a tenant (via body or query param from interceptor)
         if ($user->isSuperAdmin()) {
+            if (!$request->input('tenant_id') && $request->query('tenant_id')) {
+                $request->merge(['tenant_id' => $request->query('tenant_id')]);
+            }
             $request->validate([
                 'tenant_id' => ['required', 'string', 'exists:tenants,id'],
             ]);
@@ -51,6 +60,11 @@ class PlaylistController extends Controller
             'tenant_id' => $tenantId,
             'name' => $request->input('name'),
         ]);
+
+        // Save items if provided
+        if ($request->has('items') && count($request->input('items')) > 0) {
+            $playlist = $this->playlistService->updateItems($playlist, $request->input('items'));
+        }
 
         return response()->json([
             'data' => $playlist,
@@ -82,7 +96,7 @@ class PlaylistController extends Controller
         $request->validate([
             'name' => ['sometimes', 'string', 'max:255'],
             'items' => ['sometimes', 'array'],
-            'items.*.type' => ['required_with:items', 'string', 'in:image,video,url'],
+            'items.*.type' => ['required_with:items', 'string', 'in:image,video,url,content'],
             'items.*.content_id' => ['sometimes', 'nullable', 'string'],
             'items.*.url' => ['sometimes', 'nullable', 'string'],
             'items.*.duration_seconds' => ['sometimes', 'nullable', 'integer', 'min:1'],

@@ -42,6 +42,10 @@ class ScreenController extends Controller
 
         // Super-admin can assign to any tenant; tenant-admin's tenant is implicit
         if ($user->isSuperAdmin()) {
+            // Accept tenant_id from body or query param (interceptor injects it as query param)
+            if (!$request->input('tenant_id') && $request->query('tenant_id')) {
+                $request->merge(['tenant_id' => $request->query('tenant_id')]);
+            }
             $rules['tenant_id'] = ['required', 'string', 'exists:tenants,id'];
         }
 
@@ -95,5 +99,35 @@ class ScreenController extends Controller
         $updated = $this->deviceService->update($screen, $validated);
 
         return response()->json(['data' => $updated]);
+    }
+
+    /**
+     * Regenerate a screen's device token.
+     *
+     * The new plaintext token is returned once only and cannot be recovered later.
+     * The old token hash is replaced, invalidating any existing device sessions.
+     */
+    public function regenerateToken(Request $request, string $id): JsonResponse
+    {
+        $screen = $this->deviceService->show($id);
+
+        $result = $this->deviceService->regenerateToken($screen);
+
+        return response()->json([
+            'data' => $result['screen'],
+            'device_token' => $result['device_token'],
+            'message' => 'Token regenerated. Store the new device_token securely — it will not be shown again.',
+        ]);
+    }
+
+    /**
+     * Delete a screen.
+     */
+    public function destroy(string $id): JsonResponse
+    {
+        $screen = $this->deviceService->show($id);
+        $screen->delete();
+
+        return response()->json(['message' => 'Screen deleted successfully.']);
     }
 }

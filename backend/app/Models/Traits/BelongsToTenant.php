@@ -16,7 +16,18 @@ trait BelongsToTenant
         static::addGlobalScope('tenant', function (Builder $builder) {
             $user = auth()->user();
 
-            if ($user && !$user->isSuperAdmin()) {
+            if (!$user) {
+                return;
+            }
+
+            if ($user->isSuperAdmin()) {
+                // Super-admin: filter by tenant_id only when explicitly scoped via query param
+                $tenantId = app()->bound('current_tenant_id') ? app('current_tenant_id') : null;
+                if ($tenantId) {
+                    $builder->where($builder->getModel()->getTable() . '.tenant_id', $tenantId);
+                }
+            } else {
+                // Tenant-admin: always filter by their own tenant
                 $builder->where($builder->getModel()->getTable() . '.tenant_id', $user->tenant_id);
             }
         });

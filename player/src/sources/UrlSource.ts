@@ -3,6 +3,7 @@
  *
  * Cycles through configured URLs sequentially, supports dynamic variable
  * injection (venue_id, tenant_id, timestamp), and handles load timeouts.
+ * Loads URLs in hidden iframes and swaps to visible when ready.
  *
  * Validates: Requirements 27.1, 27.2, 27.3, 27.4, 27.5, 27.6
  */
@@ -27,15 +28,113 @@ export interface UrlSourceConfig {
   timeout?: number;
   /** Dynamic variables to inject into URL templates */
   variables?: Record<string, string>;
+  /** Optional: custom iframe loader (for testing / DI) */
+  iframeLoader?: IframeLoader;
+}
+
+/**
+ * Abstraction for iframe loading, enabling testability and DI.
+ * The default implementation creates real DOM iframes.
+ */
+export interface IframeLoader {
+  /**
+   * Load a URL in a hidden iframe. Returns the iframe element on success,
+   * or null if the load times out or fails.
+   */
+  load(url: string, timeoutMs: number): Promise<HTMLIFrameElement | null>;
+
+  /**
+   * Clean up a previously loaded iframe (remove from DOM).
+   */
+  dispose(iframe: HTMLIFrameElement): void;
 }
 
 /** Default load timeout in milliseconds */
 const DEFAULT_TIMEOUT_MS = 10000;
 
 /**
+ * Default iframe loader that creates hidden iframes in the DOM,
+ * waits for load events, and handles timeouts.
+ *
+ * Validates: Requirement 27.4 (load in iframe/webview)
+ */
+export class DomIframeLoader implements IframeLoader {
+  /**
+   * Load a URL in a hidden iframe. The iframe starts hidden and will be
+   * swapped to visible by the renderer when it's time to display.
+   *
+   * Validates: Requirement 27.3 (timeout), 27.6 (handle load failures)
+   */
+  load(url: string, timeoutMs: number): Promise<HTMLIFrameElement | null> {
+    return new Promise((resolve) => {
+      const iframe = document.createElement('iframe');
+      iframe.src = url;
+      iframe.style.position = 'absolute';
+      iframe.style.top = '0';
+      iframe.style.left = '0';
+      iframe.style.width = '100%';
+      iframe.style.height = '100%';
+      iframe.style.border = 'none';
+      iframe.style.visibility = 'hidden';
+      iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms');
+
+      let settled = false;
+
+      const timeoutId = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          // Timeout reached — clean up and return null
+          this.dispose(iframe);
+          resolve(null);
+        }
+      }, timeoutMs);
+
+      const onLoad = () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeoutId);
+          // Successfully loaded — keep iframe hidden until renderer shows it
+          resolve(iframe);
+        }
+      };
+
+      const onError = () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeoutId);
+          this.dispose(iframe);
+          resolve(null);
+        }
+      };
+
+      iframe.addEventListener('load', onLoad, { once: true });
+      iframe.addEventListener('error', onError, { once: true });
+
+      // Append to DOM (hidden) to trigger the load
+      document.body.appendChild(iframe);
+    });
+  }
+
+  /**
+   * Remove iframe from DOM and clear its src to stop any ongoing loads.
+   */
+  dispose(iframe: HTMLIFrameElement): void {
+    iframe.removeEventListener('load', () => {});
+    iframe.removeEventListener('error', () => {});
+    iframe.src = 'about:blank';
+    if (iframe.parentNode) {
+      iframe.parentNode.removeChild(iframe);
+    }
+  }
+}
+
+/**
  * Content source that loads web pages by URL in the player loop.
  * Rotates sequentially through configured URLs, injecting dynamic
  * variables and respecting per-URL duration settings.
+ *
+ * Loads URLs in hidden iframes and provides the pre-loaded element
+ * in PreparedContent for instant swap to visible when displayed.
  */
 export class UrlSource implements ContentSource {
   readonly id: SourceType = 'url';
@@ -43,17 +142,24 @@ export class UrlSource implements ContentSource {
   private readonly urls: UrlConfig[];
   private readonly timeout: number;
   private readonly variables: Record<string, string>;
+  private readonly iframeLoader: IframeLoader;
   private currentIndex: number = 0;
 
   constructor(config: UrlSourceConfig) {
     this.urls = config.urls;
     this.timeout = config.timeout ?? DEFAULT_TIMEOUT_MS;
     this.variables = config.variables ?? {};
+    this.iframeLoader = config.iframeLoader ?? new DomIframeLoader();
   }
 
   /**
-   * Pre-fetch next URL content. Returns PreparedContent or null if no URLs configured.
+   * Pre-fetch next URL content by loading it in a hidden iframe.
+   * Returns PreparedContent with the loaded iframe element, or null
+   * if no URLs are configured or the load fails/times out.
+   *
    * Advances the internal rotation index each call, wrapping at end.
+   *
+   * Validates: Requirements 27.1, 27.2, 27.3, 27.4, 27.6
    */
   async prefetch(): Promise<PreparedContent | null> {
     if (this.urls.length === 0) {
@@ -70,6 +176,14 @@ export class UrlSource implements ContentSource {
 
     const resolvedUrl = this.injectVariables(urlConfig.url);
 
+    // Load the URL in a hidden iframe with timeout
+    const iframe = await this.iframeLoader.load(resolvedUrl, this.timeout);
+
+    if (!iframe) {
+      // Load failed or timed out (Req 27.3, 27.6)
+      return null;
+    }
+
     return {
       id: `url-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       type: 'url',
@@ -81,21 +195,27 @@ export class UrlSource implements ContentSource {
         timeout: this.timeout,
         refresh_interval: urlConfig.refresh_interval ?? null,
       },
+      element: iframe,
     };
   }
 
   /**
-   * Confirm content was played. No-op for URL source.
+   * Confirm content was played. Cleans up the iframe element.
    */
-  async confirmPlay(_content: PreparedContent): Promise<void> {
-    // No-op: URL source doesn't require play confirmation
+  async confirmPlay(content: PreparedContent): Promise<void> {
+    if (content.element && content.element instanceof HTMLIFrameElement) {
+      this.iframeLoader.dispose(content.element);
+    }
   }
 
   /**
-   * Report that content could not be played (e.g. load timeout).
-   * Logs the failure; the index has already been advanced by prefetch.
+   * Report that content could not be played (e.g. display error).
+   * Cleans up the iframe and logs the failure.
    */
   async reportFailure(content: PreparedContent, reason: string): Promise<void> {
+    if (content.element && content.element instanceof HTMLIFrameElement) {
+      this.iframeLoader.dispose(content.element);
+    }
     console.error(
       `[UrlSource] Failed to load URL ${content.mediaUrl}: ${reason}`
     );
@@ -112,8 +232,10 @@ export class UrlSource implements ContentSource {
    * Replace template variables in a URL string.
    * Supported patterns: {venue_id}, {tenant_id}, {timestamp}, and any
    * key present in the variables map.
+   *
+   * Validates: Requirement 27.5
    */
-  private injectVariables(url: string): string {
+  injectVariables(url: string): string {
     let resolved = url;
 
     // Replace {timestamp} with current epoch milliseconds

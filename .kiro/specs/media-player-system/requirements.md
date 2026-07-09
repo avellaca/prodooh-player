@@ -335,6 +335,17 @@ El API de Prodooh controla internamente su propio cap de spots diarios por panta
 3. EL Sistema DEBERÁ permitir asignar una pantalla existente a un tenant específico.
 4. EL Sistema DEBERÁ garantizar que el super-admin puede ver todos los tenants y todas las pantallas del sistema, sin restricción; no existen circunstancias bajo las cuales el acceso de un super-admin sea restringido. Los usuarios que no son super-admins NO DEBERÁN tener visibilidad alguna sobre tenants o pantallas fuera de su propio tenant asignado.
 
+### Requirement 29: Regeneración de credencial de dispositivo (device token)
+
+**User Story:** Como administrador (super-admin o tenant-admin), quiero poder regenerar el device_token de una pantalla existente, para poder restablecer la autenticación de un dispositivo sin necesidad de eliminar y recrear la pantalla.
+
+#### Acceptance Criteria
+
+1. EL Sistema DEBERÁ exponer un endpoint POST `/api/admin/screens/{id}/regenerate-token` accesible por super_admin y tenant_admin (con validación de pertenencia al tenant).
+2. CUANDO se invoca la regeneración de token, EL Sistema DEBERÁ generar un nuevo device_token aleatorio, hashear y almacenar el nuevo hash reemplazando el anterior, e invalidar inmediatamente cualquier JWT emitido con el token anterior.
+3. EL Sistema DEBERÁ retornar el nuevo device_token en texto plano en la respuesta de la petición de regeneración; este token solo se muestra una vez y no podrá recuperarse posteriormente.
+4. DESPUÉS de la regeneración, el dispositivo player que usaba el token anterior DEBERÁ fallar en su próximo intento de autenticación (recibir 401) y requerir configuración manual del nuevo token para volver a operar.
+
 ### Requirement 12: Administración de un tenant individual con visibilidad acotada
 
 **User Story:** Como administrador de tenant, quiero ver y configurar únicamente las pantallas, playlists y fuentes activas pertenecientes a mi propio tenant, para que cada proveedor opere de forma independiente sin ver ni afectar la configuración de otros proveedores.

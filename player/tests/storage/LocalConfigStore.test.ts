@@ -192,6 +192,39 @@ describe('LocalConfigStore', () => {
     });
   });
 
+  describe('Graceful degradation on missing configs (Requirement 1.4)', () => {
+    it('should return null for each missing config independently', () => {
+      // Only set venue_id, other keys remain missing
+      store.set('venue_id', 'screen-001');
+
+      expect(store.get('venue_id')).toBe('screen-001');
+      expect(store.get('device_token')).toBeNull();
+      expect(store.get('backend_url')).toBeNull();
+      expect(store.get('prodooh_api_key')).toBeNull();
+      expect(store.get('gam_ad_tag')).toBeNull();
+      expect(store.getLoopConfig()).toBeNull();
+      expect(store.getSchedule()).toBeNull();
+    });
+
+    it('should allow partial config: only venue_id present', () => {
+      store.set('venue_id', 'screen-002');
+      expect(store.get('venue_id')).toBe('screen-002');
+      // Player should still operate with only venue_id available
+    });
+
+    it('should allow partial config: loop config without schedule', () => {
+      const config: LoopConfig = {
+        slots: [{ position: 0, source: 'playlist', duration: 10 }],
+        total_duration: 10,
+        version: '1.0.0',
+      };
+      store.setLoopConfig(config);
+
+      expect(store.getLoopConfig()).not.toBeNull();
+      expect(store.getSchedule()).toBeNull();
+    });
+  });
+
   describe('Table schema constraints', () => {
     it('should enforce playlist_items foreign key to playlist', () => {
       const db = (store as any).db;
@@ -206,7 +239,7 @@ describe('LocalConfigStore', () => {
       const db = (store as any).db;
       expect(() => {
         db.prepare(
-          `INSERT INTO pop_queue (id, print_id, action, url, created_at) VALUES ('q1', 'p1', 'invalid_action', 'http://x.com', '2024-01-01')`
+          `INSERT INTO pop_queue (id, print_id, action, url, created_at) VALUES ('q1', 'p1', 'invalid_action', 'http://x.com', '2024-01-01T00:00:00Z')`
         ).run();
       }).toThrow();
     });
@@ -259,6 +292,36 @@ describe('LocalConfigStore', () => {
           `INSERT INTO pop_queue (id, print_id, action, url, created_at, status) VALUES ('q1', 'p1', 'proof_of_play', 'https://api.prodooh.com/pop/p1', '2024-01-01', 'pending')`
         ).run();
       }).not.toThrow();
+    });
+
+    it('should enforce playback_log NOT NULL constraints', () => {
+      const db = (store as any).db;
+      // content_id is NOT NULL
+      expect(() => {
+        db.prepare(
+          `INSERT INTO playback_log (id, content_id, source, started_at, ended_at, duration_seconds, result) VALUES ('log1', NULL, 'prodooh', '2024-01-01', '2024-01-01', 10.0, 'success')`
+        ).run();
+      }).toThrow();
+    });
+
+    it('should enforce playlist_items type NOT NULL constraint', () => {
+      const db = (store as any).db;
+      db.prepare(`INSERT INTO playlist (id, version, synced_at) VALUES ('pl-2', '1.0', '2024-01-01')`).run();
+      expect(() => {
+        db.prepare(
+          `INSERT INTO playlist_items (id, playlist_id, type, position) VALUES ('item-2', 'pl-2', NULL, 0)`
+        ).run();
+      }).toThrow();
+    });
+
+    it('should enforce playlist_items position NOT NULL constraint', () => {
+      const db = (store as any).db;
+      db.prepare(`INSERT INTO playlist (id, version, synced_at) VALUES ('pl-3', '1.0', '2024-01-01')`).run();
+      expect(() => {
+        db.prepare(
+          `INSERT INTO playlist_items (id, playlist_id, type, position) VALUES ('item-3', 'pl-3', 'image', NULL)`
+        ).run();
+      }).toThrow();
     });
   });
 });

@@ -49,7 +49,7 @@ class DeviceAuthController extends Controller
         $token = $this->issueToken($screen);
 
         return response()->json([
-            'token' => $token,
+            'access_token' => $token,
             'token_type' => 'Bearer',
             'expires_in' => config('jwt.ttl') * 60, // seconds
         ]);

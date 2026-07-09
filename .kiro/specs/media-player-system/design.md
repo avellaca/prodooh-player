@@ -338,6 +338,7 @@ GET    /api/admin/screens              — List screens (filtered by tenant for 
 POST   /api/admin/screens              — Register screen
 PUT    /api/admin/screens/{id}         — Update screen config
 PUT    /api/admin/screens/{id}/loop    — Update loop configuration
+POST   /api/admin/screens/{id}/regenerate-token — Regenerate device token (returns new plaintext token once)
 POST   /api/admin/screens/{id}/screenshot — Request screenshot
 
 # Content Library

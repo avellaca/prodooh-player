@@ -87,7 +87,7 @@ describe('FallbackBuffer', () => {
       expect(buffer.hasContent()).toBe(true);
 
       const content = buffer.getNext();
-      expect(content.id).toBe('factory-prodooh-branding');
+      expect(content.id).toBe('factory-prodooh-branding-landscape');
       expect(content.metadata.isFactory).toBe(true);
       expect(content.element).toBeDefined();
     });
@@ -139,7 +139,7 @@ describe('FallbackBuffer', () => {
       const buffer = new FallbackBuffer({ playlistSource: source });
 
       const content = buffer.getNext();
-      expect(content.id).toBe('factory-prodooh-branding');
+      expect(content.id).toBe('factory-prodooh-branding-landscape');
       expect(content.type).toBe('html');
       expect(content.source).toBe('playlist');
       expect(content.metadata.isFactory).toBe(true);
@@ -237,7 +237,7 @@ describe('FallbackBuffer', () => {
       const content = buffer.getNext();
 
       expect(content.element).toBeInstanceOf(HTMLElement);
-      expect((content.element as HTMLElement).textContent).toBe('Prodooh');
+      expect((content.element as HTMLElement).textContent).toContain('Prodooh');
       expect((content.element as HTMLElement).dataset.factory).toBe('true');
     });
 
@@ -258,8 +258,8 @@ describe('FallbackBuffer', () => {
       const content1 = buffer.getNext();
       const content2 = buffer.getNext();
 
-      expect(content1.id).toBe('factory-prodooh-branding');
-      expect(content2.id).toBe('factory-prodooh-branding');
+      expect(content1.id).toBe('factory-prodooh-branding-landscape');
+      expect(content2.id).toBe('factory-prodooh-branding-landscape');
     });
   });
 

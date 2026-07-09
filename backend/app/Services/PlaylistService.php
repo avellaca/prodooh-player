@@ -55,10 +55,17 @@ class PlaylistService
 
         // Create new items
         foreach ($items as $item) {
+            // Resolve "content" type to "image" or "video" based on the content's mime_type
+            $type = $item['type'];
+            if ($type === 'content' && !empty($item['content_id'])) {
+                $content = \App\Models\Content::find($item['content_id']);
+                $type = ($content && str_starts_with($content->mime_type, 'video/')) ? 'video' : 'image';
+            }
+
             PlaylistItem::create([
                 'playlist_id' => $playlist->id,
                 'content_id' => $item['content_id'] ?? null,
-                'type' => $item['type'],
+                'type' => $type,
                 'url' => $item['url'] ?? null,
                 'duration_seconds' => $item['duration_seconds'] ?? null,
                 'position' => $item['position'],

@@ -1,0 +1,22 @@
+# Prodooh Player Watchdog Service
+# Monitors the main player service and ensures it is always running.
+# Provides an additional safety net beyond systemd's built-in Restart= directive.
+# If the player service is not active, the watchdog restarts it within 10 seconds.
+#
+# Requirement: 14.4 (auto-restart on crash < 10s)
+
+[Unit]
+Description=Prodooh Player Watchdog
+After=prodooh-player.service
+Requires=prodooh-player.service
+PartOf=prodooh-player.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/opt/prodooh-player/deploy/watchdog.sh
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=graphical.target

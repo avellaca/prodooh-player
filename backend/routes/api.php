@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AdminAuthController;
 use App\Http\Controllers\Admin\ContentController;
+use App\Http\Controllers\Admin\ContentPreviewController;
 use App\Http\Controllers\Admin\LoopConfigController;
 use App\Http\Controllers\Admin\PlaybackAnalyticsController;
 use App\Http\Controllers\Admin\PlaylistController;
@@ -44,9 +45,13 @@ Route::prefix('device')->group(function () {
 
         Route::post('/playlist/confirm', [PlaylistSyncController::class, 'confirm'])->name('device.playlist.confirm');
 
+        Route::get('/content/{id}/file', [PlaylistSyncController::class, 'serveContentFile'])->name('device.content.file');
+
         Route::post('/playback-logs', [PlaybackLogController::class, 'store'])->name('device.playback-logs');
 
         Route::post('/screenshot', [ScreenshotController::class, 'store'])->name('device.screenshot');
+
+        Route::post('/prodooh/ad', [\App\Http\Controllers\Device\ProDoohProxyController::class, 'fetchAd'])->name('device.prodooh.ad');
     });
 });
 
@@ -88,6 +93,8 @@ Route::prefix('admin')->group(function () {
             Route::post('/screens', [ScreenController::class, 'store'])->name('admin.screens.store');
             Route::get('/screens/{id}', [ScreenController::class, 'show'])->name('admin.screens.show');
             Route::put('/screens/{id}', [ScreenController::class, 'update'])->name('admin.screens.update');
+            Route::delete('/screens/{id}', [ScreenController::class, 'destroy'])->name('admin.screens.destroy');
+            Route::post('/screens/{id}/regenerate-token', [ScreenController::class, 'regenerateToken'])->name('admin.screens.regenerateToken');
 
             // Screen group management
             Route::get('/groups', [ScreenGroupController::class, 'index'])->name('admin.groups.index');
@@ -116,6 +123,11 @@ Route::prefix('admin')->group(function () {
             Route::post('/content', [ContentController::class, 'store'])->name('admin.content.store');
             Route::delete('/content/{id}', [ContentController::class, 'destroy'])->name('admin.content.destroy');
             Route::put('/content/{id}/rotate', [ContentController::class, 'rotate'])->name('admin.content.rotate');
+            Route::get('/content/{id}/preview', [ContentPreviewController::class, 'show'])->name('admin.content.preview');
+            Route::get('/content/{id}/preview/file', [ContentController::class, 'serveFile'])->name('admin.content.preview.file');
+
+            // Playlist item preview (supports URL items)
+            Route::get('/playlist-items/{id}/preview', [ContentPreviewController::class, 'showPlaylistItem'])->name('admin.playlist-items.preview');
 
             // Analytics
             Route::get('/analytics/playback', [PlaybackAnalyticsController::class, 'index'])->name('admin.analytics.playback');

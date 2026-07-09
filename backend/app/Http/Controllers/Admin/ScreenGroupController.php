@@ -29,6 +29,11 @@ class ScreenGroupController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        // Accept tenant_id from query param (interceptor) if not in body
+        if (!$request->input('tenant_id') && $request->query('tenant_id')) {
+            $request->merge(['tenant_id' => $request->query('tenant_id')]);
+        }
+
         $validated = $request->validate([
             'tenant_id' => ['required', 'uuid', 'exists:tenants,id'],
             'name' => ['required', 'string', 'max:255'],

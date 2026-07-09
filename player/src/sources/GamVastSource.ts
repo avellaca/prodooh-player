@@ -14,30 +14,82 @@ export interface GamVastConfig {
   adTagUrl: string;
   /** Timeout in milliseconds for the VAST request (default: 5000) */
   timeout?: number;
+  /** Optional logger for error reporting (defaults to console) */
+  logger?: GamLogger;
 }
+
+/** Logger interface for GamVastSource error reporting */
+export interface GamLogger {
+  error(message: string, ...args: unknown[]): void;
+  warn(message: string, ...args: unknown[]): void;
+}
+
+/** Default console logger */
+const defaultLogger: GamLogger = {
+  error: (msg, ...args) => console.error(`[GamVastSource] ${msg}`, ...args),
+  warn: (msg, ...args) => console.warn(`[GamVastSource] ${msg}`, ...args),
+};
+
+/**
+ * Known valid GAM ad serving domains.
+ * The ad tag URL must be hosted on one of these domains to be considered valid.
+ * This prevents requests to arbitrary URLs and ensures we only talk to GAM infrastructure.
+ *
+ * Validates: Requirement 3.4 (no production data leakage)
+ */
+const ALLOWED_GAM_DOMAINS = [
+  'pubads.g.doubleclick.net',
+  'securepubads.g.doubleclick.net',
+  'pagead2.googlesyndication.com',
+  'googleads.g.doubleclick.net',
+];
+
+/**
+ * Sandbox/test indicators that must be present in the ad tag URL path or parameters.
+ * At least one of these must appear for the tag to be accepted as a sandbox tag.
+ *
+ * Validates: Requirement 3.1
+ */
+const SANDBOX_INDICATORS = [
+  'test',
+  'sandbox',
+  'sample_tag',
+  'debug',
+  'adunit/test',
+  'test_ad',
+  '/test/',
+];
 
 /**
  * Content source implementation for Google Ad Manager VAST (sandbox).
  * Validates that the ad tag is a test/sandbox tag before sending requests,
  * parses VAST XML responses to extract media files and duration.
+ *
+ * Security: Refuses to send requests unless the ad tag URL:
+ * 1. Is hosted on a known GAM domain (prevents data leakage to arbitrary servers)
+ * 2. Contains a sandbox/test indicator (ensures no production impressions)
  */
 export class GamVastSource implements ContentSource {
   readonly id = 'gam' as const;
 
   private readonly adTagUrl: string;
   private readonly timeout: number;
+  private readonly logger: GamLogger;
 
   constructor(config: GamVastConfig) {
     this.adTagUrl = config.adTagUrl;
     this.timeout = config.timeout ?? 5000;
+    this.logger = config.logger ?? defaultLogger;
   }
 
   /**
    * Pre-fetch next content from GAM VAST.
-   * 1. Validates adTagUrl is a sandbox tag
-   * 2. Fetches VAST XML from the adTagUrl
+   * 1. Validates adTagUrl is a sandbox tag on a known GAM domain
+   * 2. Fetches VAST XML from the adTagUrl with timeout
    * 3. Parses XML to extract MediaFile URL and duration
    * 4. Returns PreparedContent or null on failure/no-fill
+   *
+   * Validates: Requirement 3.2 (play valid ad), 3.3 (fallback on failure)
    */
   async prefetch(): Promise<PreparedContent | null> {
     if (!this.validateSandboxTag(this.adTagUrl)) {
@@ -66,25 +118,27 @@ export class GamVastSource implements ContentSource {
         metadata: {
           vastDuration: parsed.duration,
           adTagUrl: this.adTagUrl,
+          sandbox: true, // Marks this as sandbox data (Req 3.4)
         },
       };
     } catch {
-      // Timeout, network error, or any other failure → return null
+      // Timeout, network error, or any other failure → return null (Req 3.3)
       return null;
     }
   }
 
   /**
    * Confirm the content was played successfully.
-   * No-op for MVP — VAST tracking handled separately by the VAST spec.
+   * No-op for MVP — VAST tracking events are not sent to avoid
+   * reporting sandbox impressions as real (Req 3.4).
    */
   async confirmPlay(_content: PreparedContent): Promise<void> {
-    // No-op for MVP
+    // No-op: do not report impressions for sandbox ads (Req 3.4)
   }
 
   /**
    * Report that content could not be played.
-   * No-op for MVP.
+   * No-op for MVP — no error tracking sent to GAM for sandbox.
    */
   async reportFailure(_content: PreparedContent, _reason: string): Promise<void> {
     // No-op for MVP
@@ -100,29 +154,60 @@ export class GamVastSource implements ContentSource {
 
   /**
    * Validates that the ad tag URL corresponds to a sandbox/test tag.
-   * Checks for common sandbox indicators in the URL.
+   * Two-part validation:
+   * 1. URL must be hosted on a known GAM domain (security)
+   * 2. URL must contain a sandbox/test indicator (prevents production usage)
    *
-   * Validates: Requirement 3.1
+   * Logs an error and refuses to send if validation fails.
+   *
+   * Validates: Requirement 3.1, 3.4
    */
-  private validateSandboxTag(url: string): boolean {
+  validateSandboxTag(url: string): boolean {
     if (!url || typeof url !== 'string') {
+      this.logger.error('Ad tag URL is empty or invalid.');
       return false;
     }
 
-    const lowerUrl = url.toLowerCase();
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      this.logger.error(
+        `Ad tag URL is not a valid URL: "${url}". Refusing to send GAM request.`,
+      );
+      return false;
+    }
 
-    // Check for sandbox/test indicators in the URL
-    const sandboxIndicators = [
-      'test',
-      'sandbox',
-      'sample_tag',
-      'debug',
-      'adunit/test',
-      'test_ad',
-      '/test/',
-    ];
+    // Check 1: Must be on a known GAM domain
+    const hostname = parsedUrl.hostname.toLowerCase();
+    const isKnownDomain = ALLOWED_GAM_DOMAINS.some(
+      (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
+    );
 
-    return sandboxIndicators.some((indicator) => lowerUrl.includes(indicator));
+    if (!isKnownDomain) {
+      this.logger.error(
+        `Ad tag URL host "${hostname}" is not a recognized GAM domain. ` +
+          `Allowed domains: ${ALLOWED_GAM_DOMAINS.join(', ')}. Refusing to send request.`,
+      );
+      return false;
+    }
+
+    // Check 2: Must contain a sandbox/test indicator
+    const fullUrl = url.toLowerCase();
+    const hasSandboxIndicator = SANDBOX_INDICATORS.some((indicator) =>
+      fullUrl.includes(indicator),
+    );
+
+    if (!hasSandboxIndicator) {
+      this.logger.error(
+        `Ad tag URL does not contain a sandbox/test indicator. ` +
+          `Expected one of: ${SANDBOX_INDICATORS.join(', ')}. ` +
+          `Refusing to send GAM request to prevent production impressions.`,
+      );
+      return false;
+    }
+
+    return true;
   }
 
   /**

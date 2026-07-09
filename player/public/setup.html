@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prodooh Player — Setup</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+    .card {
+      background: #16213e;
+      border-radius: 12px;
+      padding: 2rem;
+      max-width: 500px;
+      width: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem;
+      color: #e8403a;
+    }
+    p.subtitle {
+      font-size: 0.875rem;
+      color: #999;
+      margin-bottom: 1.5rem;
+    }
+    label {
+      display: block;
+      font-size: 0.875rem;
+      color: #ccc;
+      margin-bottom: 0.25rem;
+    }
+    input {
+      width: 100%;
+      padding: 0.6rem 0.8rem;
+      border-radius: 6px;
+      border: 1px solid #333;
+      background: #0f1623;
+      color: #eee;
+      font-size: 0.9rem;
+      margin-bottom: 1rem;
+    }
+    input:focus {
+      outline: none;
+      border-color: #e8403a;
+    }
+    button {
+      width: 100%;
+      padding: 0.75rem;
+      border: none;
+      border-radius: 6px;
+      background: #e8403a;
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #d63531;
+    }
+    .status {
+      margin-top: 1rem;
+      padding: 0.75rem;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      display: none;
+    }
+    .status.success { display: block; background: #1a4d2e; color: #6fcf97; }
+    .status.error { display: block; background: #4d1a1a; color: #f97066; }
+    .info {
+      margin-top: 1.5rem;
+      padding: 0.75rem;
+      background: #0f1623;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      color: #888;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🖥️ Prodooh Player Setup</h1>
+    <p class="subtitle">Configura este browser como un dispositivo player (simula una Raspberry Pi)</p>
+
+    <label for="backend_url">Backend URL</label>
+    <input type="text" id="backend_url" value="http://localhost:8000" placeholder="http://localhost:8000" />
+
+    <label for="venue_id">Venue ID</label>
+    <input type="text" id="venue_id" value="prodooh-oficina-totem-1" placeholder="prodooh-oficina-totem-1" />
+
+    <label for="device_token">Device Token (8 caracteres)</label>
+    <input type="text" id="device_token" value="" placeholder="Ej: KH4VN7XB" maxlength="8" style="text-transform: uppercase; letter-spacing: 2px; font-size: 1.2rem; text-align: center;" />
+
+    <button onclick="saveConfig()">💾 Guardar y Lanzar Player</button>
+
+    <div id="status" class="status"></div>
+
+    <div class="info">
+      <strong>¿Cómo funciona?</strong><br>
+      1. Ingresa el Venue ID y Device Token (8 caracteres, se muestra al registrar la pantalla)<br>
+      2. Al guardar, se autentica contra el backend con el device_token<br>
+      3. Si la autenticación es exitosa, abre el player en pantalla completa
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'prodooh_db_./player.db';
+
+    function getStoredDb() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        return raw ? JSON.parse(raw) : {};
+      } catch {
+        return {};
+      }
+    }
+
+    function saveToDb(db) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+    }
+
+    async function saveConfig() {
+      const statusEl = document.getElementById('status');
+      const backendUrl = document.getElementById('backend_url').value.trim();
+      const venueId = document.getElementById('venue_id').value.trim();
+      const deviceToken = document.getElementById('device_token').value.trim();
+
+      if (!backendUrl || !venueId || !deviceToken) {
+        statusEl.className = 'status error';
+        statusEl.textContent = '❌ Todos los campos son obligatorios';
+        return;
+      }
+
+      statusEl.className = 'status';
+      statusEl.style.display = 'block';
+      statusEl.style.background = '#1a3d4d';
+      statusEl.style.color = '#88ccff';
+      statusEl.textContent = '⏳ Autenticando con el backend...';
+
+      // Test authentication first
+      try {
+        const authRes = await fetch(`${backendUrl}/api/device/auth`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify({
+            venue_id: venueId,
+            device_token: deviceToken,
+          }),
+        });
+
+        if (!authRes.ok) {
+          const err = await authRes.json().catch(() => ({}));
+          statusEl.className = 'status error';
+          statusEl.textContent = `❌ Autenticación fallida (${authRes.status}): ${err.message || 'Credenciales inválidas'}`;
+          return;
+        }
+
+        const authData = await authRes.json();
+        statusEl.className = 'status success';
+        statusEl.textContent = `✅ Autenticado! JWT obtenido. Guardando configuración...`;
+
+        // Save config to localStorage (mimics SQLite device_config table)
+        const now = new Date().toISOString();
+        const db = getStoredDb();
+        
+        // Initialize device_config table
+        db.device_config = [
+          { key: 'backend_url', value: backendUrl, updated_at: now },
+          { key: 'venue_id', value: venueId, updated_at: now },
+          { key: 'device_token', value: deviceToken, updated_at: now },
+          { key: 'jwt_token', value: authData.access_token || authData.token || '', updated_at: now },
+        ];
+
+        // Clear any cached loop_config from previous sessions (avoid stale/corrupt data)
+        delete db.loop_config;
+        delete db.schedule;
+
+        saveToDb(db);
+
+        // Brief delay then launch the player
+        setTimeout(() => {
+          window.location.href = './index.html';
+        }, 1000);
+
+      } catch (err) {
+        statusEl.className = 'status error';
+        statusEl.textContent = `❌ Error de conexión: ${err.message}. ¿El backend está corriendo?`;
+      }
+    }
+
+    // Pre-fill from existing config if available
+    window.addEventListener('DOMContentLoaded', () => {
+      const db = getStoredDb();
+      if (db.device_config) {
+        for (const row of db.device_config) {
+          const input = document.getElementById(row.key);
+          if (input) input.value = row.value;
+        }
+      }
+    });
+  </script>
+</body>
+</html>

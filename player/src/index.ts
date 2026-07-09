@@ -6,3 +6,6 @@
  */
 
 export const PLAYER_VERSION = '0.1.0';
+
+export { bootPlayer } from './boot';
+export type { BootResult, BootOptions, DeviceLocalConfig, BackendDeviceConfig } from './boot';

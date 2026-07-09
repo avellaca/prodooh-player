@@ -42,12 +42,15 @@ class ContentController extends Controller
         $user = $request->user();
         $tenantId = $user->tenant_id;
 
-        // Super-admin must specify a tenant
+        // Super-admin must specify a tenant (via body or query param from interceptor)
         if ($user->isSuperAdmin()) {
-            $request->validate([
-                'tenant_id' => ['required', 'string', 'exists:tenants,id'],
-            ]);
-            $tenantId = $request->input('tenant_id');
+            $tenantId = $request->input('tenant_id') ?? $request->query('tenant_id');
+            if (!$tenantId) {
+                return response()->json([
+                    'message' => 'Content validation failed.',
+                    'errors' => ['tenant_id' => ['The tenant_id field is required for super-admin.']],
+                ], 422);
+            }
         }
 
         $result = $this->contentLibraryService->upload(
@@ -122,6 +125,33 @@ class ContentController extends Controller
         return response()->json([
             'data' => $content->fresh(),
             'message' => 'Content rotation updated successfully.',
+        ]);
+    }
+
+    /**
+     * Serve the content file for preview.
+     *
+     * GET /api/admin/content/{id}/preview/file
+     */
+    public function serveFile(string $id)
+    {
+        $content = Content::find($id);
+
+        if (! $content) {
+            return response()->json(['message' => 'Content not found.'], 404);
+        }
+
+        $disk = \Illuminate\Support\Facades\Storage::disk('local');
+
+        if (! $disk->exists($content->storage_path)) {
+            return response()->json(['message' => 'File not found on storage.'], 404);
+        }
+
+        $path = $disk->path($content->storage_path);
+
+        return response()->file($path, [
+            'Content-Type' => $content->mime_type,
+            'Content-Disposition' => 'inline; filename="' . $content->filename . '"',
         ]);
     }
 }

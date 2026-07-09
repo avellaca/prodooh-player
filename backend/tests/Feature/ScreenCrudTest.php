@@ -96,8 +96,8 @@ class ScreenCrudTest extends TestCase
                 ],
             ]);
 
-        // device_token should be a 64-char string
-        $this->assertEquals(64, strlen($response->json('device_token')));
+        // device_token should be an 8-char alphanumeric string
+        $this->assertEquals(8, strlen($response->json('device_token')));
 
         // Verify the hash is stored
         $screen = Screen::first();

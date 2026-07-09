@@ -45,11 +45,11 @@ export class LocalConfigStore {
       CREATE TABLE IF NOT EXISTS playlist_items (
         id TEXT PRIMARY KEY,
         playlist_id TEXT NOT NULL REFERENCES playlist(id),
-        type TEXT CHECK(type IN ('image', 'video', 'url')),
+        type TEXT NOT NULL CHECK(type IN ('image', 'video', 'url')),
         media_path TEXT,
         url TEXT,
         duration_seconds INTEGER,
-        position INTEGER,
+        position INTEGER NOT NULL,
         rotation INTEGER DEFAULT 0,
         refresh_interval INTEGER,
         checksum TEXT,
@@ -59,9 +59,9 @@ export class LocalConfigStore {
       CREATE TABLE IF NOT EXISTS pop_queue (
         id TEXT PRIMARY KEY,
         print_id TEXT NOT NULL,
-        action TEXT CHECK(action IN ('proof_of_play', 'expiration')),
+        action TEXT NOT NULL CHECK(action IN ('proof_of_play', 'expiration')),
         url TEXT NOT NULL,
-        created_at TEXT,
+        created_at TEXT NOT NULL,
         attempts INTEGER DEFAULT 0,
         next_retry_at TEXT,
         status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'sending', 'sent', 'failed'))
@@ -69,12 +69,12 @@ export class LocalConfigStore {
 
       CREATE TABLE IF NOT EXISTS playback_log (
         id TEXT PRIMARY KEY,
-        content_id TEXT,
-        source TEXT CHECK(source IN ('prodooh', 'gam', 'url', 'playlist')),
-        started_at TEXT,
-        ended_at TEXT,
-        duration_seconds REAL,
-        result TEXT CHECK(result IN ('success', 'failed')),
+        content_id TEXT NOT NULL,
+        source TEXT NOT NULL CHECK(source IN ('prodooh', 'gam', 'url', 'playlist')),
+        started_at TEXT NOT NULL,
+        ended_at TEXT NOT NULL,
+        duration_seconds REAL NOT NULL,
+        result TEXT NOT NULL CHECK(result IN ('success', 'failed')),
         failure_reason TEXT,
         synced INTEGER DEFAULT 0
       );
@@ -184,6 +184,15 @@ export class LocalConfigStore {
          ON CONFLICT(id) DO UPDATE SET rules_json = excluded.rules_json, timezone = excluded.timezone, synced_at = excluded.synced_at`
       )
       .run(rulesJson, schedule.timezone, schedule.synced_at ?? now);
+  }
+
+  /**
+   * Returns the underlying database instance.
+   * Used by other components (PlaylistSource, PlaybackLogger) that need
+   * direct database access for their own queries.
+   */
+  getDatabase(): Database.Database {
+    return this.db;
   }
 
   /**

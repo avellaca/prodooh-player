@@ -92,17 +92,22 @@ export class PlaylistSource implements ContentSource {
   /**
    * Query all ready playlist items sorted by position.
    * Only items with download_status = 'ready' or URL items are considered playable.
+   * Uses JS filtering for browser shim compatibility (shim has limited SQL WHERE support).
    */
   private getReadyItems(): PlaylistItemRow[] {
     const stmt = this.db.prepare(`
       SELECT id, playlist_id, type, media_path, url, duration_seconds,
              position, rotation, refresh_interval, checksum, download_status
       FROM playlist_items
-      WHERE (download_status = 'ready' OR type = 'url')
       ORDER BY position ASC
     `);
 
-    return stmt.all() as PlaylistItemRow[];
+    const allItems = stmt.all() as PlaylistItemRow[];
+
+    // Filter in JS for browser shim compatibility (OR conditions not fully supported)
+    return allItems.filter(
+      (item) => item.download_status === 'ready' || item.type === 'url'
+    );
   }
 
   /**

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LoopEngine } from '../../src/engine/LoopEngine';
+import type { ScheduleChecker } from '../../src/engine/LoopEngine';
 import type { ContentSource, PreparedContent, SourceType } from '../../src/sources/types';
 import type { FallbackBuffer } from '../../src/sources/FallbackBuffer';
 import type { LoopConfig, SlotConfig } from '../../src/storage/types';
@@ -642,6 +643,313 @@ describe('LoopEngine', () => {
       // Advance another retry
       await vi.advanceTimersByTimeAsync(1000);
       expect(onPlay).toHaveBeenCalledTimes(1);
+
+      engine.stop();
+      await runPromise;
+    });
+  });
+
+  describe('ScheduleChecker integration — operating hours', () => {
+    it('should enter sleep mode when outside operating hours', async () => {
+      const config = makeLoopConfig([makeSlot(0, 'prodooh', 1)]);
+      const sources = new Map<SourceType, ContentSource>([
+        ['prodooh', createMockSource('prodooh')],
+      ]);
+      const fallbackBuffer = createMockFallbackBuffer();
+      const scheduleChecker: ScheduleChecker = {
+        isWithinOperatingHours: vi.fn(() => false),
+      };
+      const onPlay = vi.fn();
+      const onSleep = vi.fn();
+
+      const engine = new LoopEngine({
+        config,
+        sources,
+        fallbackBuffer,
+        scheduleChecker,
+        onPlay,
+        onSleep,
+      });
+
+      const runPromise = engine.run();
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Should not play anything
+      expect(onPlay).not.toHaveBeenCalled();
+      // Should enter sleep mode
+      expect(onSleep).toHaveBeenCalledTimes(1);
+      expect(engine.isSleeping()).toBe(true);
+
+      engine.stop();
+      await runPromise;
+    });
+
+    it('should poll every 10 seconds while sleeping and resume when hours begin', async () => {
+      const config = makeLoopConfig([makeSlot(0, 'prodooh', 1)]);
+      const sources = new Map<SourceType, ContentSource>([
+        ['prodooh', createMockSource('prodooh')],
+      ]);
+      const fallbackBuffer = createMockFallbackBuffer();
+      let withinHours = false;
+      const scheduleChecker: ScheduleChecker = {
+        isWithinOperatingHours: vi.fn(() => withinHours),
+      };
+      const onPlay = vi.fn();
+      const onSleep = vi.fn();
+      const onWake = vi.fn();
+
+      const engine = new LoopEngine({
+        config,
+        sources,
+        fallbackBuffer,
+        scheduleChecker,
+        onPlay,
+        onSleep,
+        onWake,
+      });
+
+      const runPromise = engine.run();
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Should be sleeping
+      expect(engine.isSleeping()).toBe(true);
+      expect(onPlay).not.toHaveBeenCalled();
+
+      // Advance 10 seconds — still outside hours
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(onPlay).not.toHaveBeenCalled();
+      // onSleep should only be called once
+      expect(onSleep).toHaveBeenCalledTimes(1);
+
+      // Now switch to within operating hours
+      withinHours = true;
+      await vi.advanceTimersByTimeAsync(10_000);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Should have woken up and started playing
+      expect(engine.isSleeping()).toBe(false);
+      expect(onWake).toHaveBeenCalledTimes(1);
+      expect(onPlay).toHaveBeenCalledTimes(1);
+
+      engine.stop();
+      await runPromise;
+    });
+
+    it('should play normally when no scheduleChecker is provided (24/7 mode)', async () => {
+      const config = makeLoopConfig([makeSlot(0, 'prodooh', 1)]);
+      const sources = new Map<SourceType, ContentSource>([
+        ['prodooh', createMockSource('prodooh')],
+      ]);
+      const fallbackBuffer = createMockFallbackBuffer();
+      const onPlay = vi.fn();
+
+      const engine = new LoopEngine({
+        config,
+        sources,
+        fallbackBuffer,
+        onPlay,
+        // No scheduleChecker — defaults to always active
+      });
+
+      const runPromise = engine.run();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(onPlay).toHaveBeenCalledTimes(1);
+      expect(engine.isSleeping()).toBe(false);
+
+      engine.stop();
+      await runPromise;
+    });
+
+    it('should clear current content when entering sleep mode', async () => {
+      const config = makeLoopConfig([makeSlot(0, 'prodooh', 1)]);
+      const sources = new Map<SourceType, ContentSource>([
+        ['prodooh', createMockSource('prodooh')],
+      ]);
+      const fallbackBuffer = createMockFallbackBuffer();
+      const scheduleChecker: ScheduleChecker = {
+        isWithinOperatingHours: vi.fn(() => false),
+      };
+
+      const engine = new LoopEngine({
+        config,
+        sources,
+        fallbackBuffer,
+        scheduleChecker,
+      });
+
+      const runPromise = engine.run();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(engine.getCurrentContent()).toBeNull();
+
+      engine.stop();
+      await runPromise;
+    });
+  });
+
+  describe('prefetch — background content preparation (Req 6.1)', () => {
+    it('should prefetch next slot content while current slot plays', async () => {
+      const config = makeLoopConfig([
+        makeSlot(0, 'prodooh', 1),
+        makeSlot(1, 'gam', 1),
+      ]);
+      const prodoohSource = createMockSource('prodooh');
+      const gamSource = createMockSource('gam');
+
+      const sources = new Map<SourceType, ContentSource>([
+        ['prodooh', prodoohSource],
+        ['gam', gamSource],
+      ]);
+      const fallbackBuffer = createMockFallbackBuffer();
+
+      const engine = new LoopEngine({ config, sources, fallbackBuffer });
+
+      const runPromise = engine.run();
+      await vi.advanceTimersByTimeAsync(0);
+
+      // After first slot starts playing, prefetch for next slot should be triggered
+      // gamSource.prefetch() should be called (once for the prefetch, once for actual play later)
+      // The first call happens during the prefetch phase of slot 0
+      expect(gamSource.prefetch).toHaveBeenCalled();
+
+      engine.stop();
+      await runPromise;
+    });
+
+    it('should use prefetched content for next slot when available', async () => {
+      const prodoohContent = makePreparedContent('prodooh-1', 'prodooh', 1);
+      const gamContent = makePreparedContent('gam-prefetched', 'gam', 1);
+
+      const config = makeLoopConfig([
+        makeSlot(0, 'prodooh', 1),
+        makeSlot(1, 'gam', 1),
+      ]);
+
+      const prodoohSource = createMockSource('prodooh', true, prodoohContent);
+      const gamSource = createMockSource('gam', true, gamContent);
+
+      const sources = new Map<SourceType, ContentSource>([
+        ['prodooh', prodoohSource],
+        ['gam', gamSource],
+      ]);
+      const fallbackBuffer = createMockFallbackBuffer();
+      const playedContent: PreparedContent[] = [];
+
+      const engine = new LoopEngine({
+        config,
+        sources,
+        fallbackBuffer,
+        onPlay: (content) => playedContent.push(content),
+      });
+
+      const runPromise = engine.run();
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Slot 0 plays prodooh content
+      expect(playedContent[0]!.source).toBe('prodooh');
+
+      // Advance past slot 0
+      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Slot 1 should use the prefetched gam content
+      expect(playedContent[1]!.source).toBe('gam');
+      expect(playedContent[1]!.id).toBe('gam-prefetched');
+
+      engine.stop();
+      await runPromise;
+    });
+
+    it('should invalidate prefetched content on config update', async () => {
+      const config = makeLoopConfig([
+        makeSlot(0, 'prodooh', 1),
+        makeSlot(1, 'gam', 1),
+      ]);
+      const prodoohSource = createMockSource('prodooh');
+      const gamSource = createMockSource('gam');
+      const urlSource = createMockSource('url');
+
+      const sources = new Map<SourceType, ContentSource>([
+        ['prodooh', prodoohSource],
+        ['gam', gamSource],
+        ['url', urlSource],
+      ]);
+      const fallbackBuffer = createMockFallbackBuffer();
+      const playedContent: PreparedContent[] = [];
+
+      const engine = new LoopEngine({
+        config,
+        sources,
+        fallbackBuffer,
+        onPlay: (content) => playedContent.push(content),
+      });
+
+      const runPromise = engine.run();
+      await vi.advanceTimersByTimeAsync(0);
+
+      // First slot plays prodooh. Prefetch for gam (slot 1) started.
+      expect(playedContent[0]!.source).toBe('prodooh');
+
+      // Update config to change slot 1 to 'url'
+      const newConfig = makeLoopConfig([
+        makeSlot(0, 'prodooh', 1),
+        makeSlot(1, 'url', 1),
+      ]);
+      engine.updateConfig(newConfig);
+
+      // Advance past slot 0
+      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Slot 1 should play 'url', NOT the prefetched 'gam' content
+      expect(playedContent[1]!.source).toBe('url');
+
+      engine.stop();
+      await runPromise;
+    });
+
+    it('should handle prefetch failure gracefully (falls back to normal fetch)', async () => {
+      const config = makeLoopConfig([
+        makeSlot(0, 'prodooh', 1),
+        makeSlot(1, 'gam', 1),
+      ]);
+      const prodoohSource = createMockSource('prodooh');
+      const gamSource = createMockSource('gam', true);
+
+      // Make the first prefetch call (during slot 0) fail, but second call (actual slot 1 fetch) succeed
+      let prefetchCallCount = 0;
+      (gamSource.prefetch as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+        prefetchCallCount++;
+        if (prefetchCallCount === 1) {
+          throw new Error('Prefetch network error');
+        }
+        return makePreparedContent('gam-retry', 'gam', 1);
+      });
+
+      const sources = new Map<SourceType, ContentSource>([
+        ['prodooh', prodoohSource],
+        ['gam', gamSource],
+      ]);
+      const fallbackBuffer = createMockFallbackBuffer();
+      const playedContent: PreparedContent[] = [];
+
+      const engine = new LoopEngine({
+        config,
+        sources,
+        fallbackBuffer,
+        onPlay: (content) => playedContent.push(content),
+      });
+
+      const runPromise = engine.run();
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Advance past slot 0
+      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Slot 1 should still play something (either retry succeeded or fallback)
+      expect(playedContent[1]).toBeDefined();
 
       engine.stop();
       await runPromise;

@@ -1,0 +1,69 @@
+# Prodooh Player Kiosk Service
+# Starts Cage compositor with Chromium in kiosk mode on boot.
+# Cage is a minimal Wayland compositor that runs a single application fullscreen,
+# inherently blocking access to the underlying OS.
+#
+# Requirements: 14.1 (auto-start), 14.2 (kiosk lockdown), 14.4 (watchdog restart)
+
+[Unit]
+Description=Prodooh Player Kiosk (Cage + Chromium)
+After=network-online.target
+Wants=network-online.target
+# Ensure graphical target dependencies are met
+After=systemd-user-sessions.service
+
+[Service]
+Type=simple
+User=prodooh
+Group=prodooh
+
+# Environment for Cage/Wayland
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=WLR_LIBINPUT_NO_DEVICES=1
+
+# Cage launches Chromium in kiosk mode pointing to the player HTML
+# --kiosk: fullscreen without browser UI
+# --noerrdialogs: suppress error dialogs
+# --disable-translate: no translation popups
+# --disable-infobars: no info bars
+# --disable-session-crashed-bubble: no crash recovery prompts
+# --disable-features=TranslateUI: additional translate suppression
+# --check-for-update-interval=31536000: effectively disable update checks
+# --autoplay-policy=no-user-gesture-required: allow video autoplay
+ExecStart=/usr/bin/cage -- /usr/bin/chromium-browser \
+    --kiosk \
+    --noerrdialogs \
+    --disable-translate \
+    --disable-infobars \
+    --disable-session-crashed-bubble \
+    --disable-features=TranslateUI \
+    --check-for-update-interval=31536000 \
+    --autoplay-policy=no-user-gesture-required \
+    --disable-pinch \
+    --overscroll-history-navigation=disabled \
+    --no-first-run \
+    --disable-background-networking \
+    --disable-sync \
+    --disable-default-apps \
+    /opt/prodooh-player/dist/index.html
+
+# Watchdog: restart on failure within 5 seconds (< 10s requirement)
+Restart=on-failure
+RestartSec=5
+# Limit restart attempts to prevent infinite loops on persistent errors
+StartLimitIntervalSec=60
+StartLimitBurst=10
+
+# Security hardening
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/prodooh-player/data
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+# Resource management
+MemoryMax=512M
+CPUQuota=90%
+
+[Install]
+WantedBy=graphical.target

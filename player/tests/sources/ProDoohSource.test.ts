@@ -8,15 +8,15 @@ const defaultConfig: ProDoohSourceConfig = {
   networkId: 'sandbox-network',
   venueId: 'sandbox-screen-1',
   baseUrl: 'https://sandbox.api.prodooh.com',
-  width: 1920,
-  height: 1080,
+  width: '1920',
+  height: '1080',
 };
 
 const mockAdResponse = {
   media: 'https://cdn.prodooh.com/ad/creative-123.jpg',
   type: 'image/jpeg',
   print_id: 'pop-uuid-001',
-  proof_of_play: 'https://sandbox.api.prodooh.com/public/v1/ad/proof_of_play/pop-uuid-001',
+  proof_of_play: 'https://sandbox.api.prodooh.com/v1/ad/proof_of_play/pop-uuid-001',
   expiration: 'https://sandbox.api.prodooh.com/public/v1/expiration/pop-uuid-001',
   media_id: 42,
   campaign_id: 7,
@@ -64,7 +64,7 @@ describe('ProDoohSource', () => {
       await source.prefetch();
 
       expect(fetchMock).toHaveBeenCalledWith(
-        'https://sandbox.api.prodooh.com/public/v1/ad',
+        'https://sandbox.api.prodooh.com/v1/ad',
         expect.objectContaining({
           method: 'POST',
           headers: {
@@ -75,9 +75,9 @@ describe('ProDoohSource', () => {
             api_key: 'sandbox-api-key',
             network_id: 'sandbox-network',
             venue_id: 'sandbox-screen-1',
-            width: 1920,
-            height: 1080,
-            supported_media: ['image/jpeg', 'image/png', 'video/mp4'],
+            width: '1920',
+            height: '1080',
+            supported_media: ['image/jpeg', 'image/jpg', 'image/png', 'video/mp4', 'video/mpeg', 'video/mpg'],
           }),
         }),
       );
@@ -200,7 +200,7 @@ describe('ProDoohSource', () => {
       await src.prefetch();
 
       expect(fetchMock).toHaveBeenCalledWith(
-        'https://sandbox.api.prodooh.com/public/v1/ad',
+        'https://sandbox.api.prodooh.com/v1/ad',
         expect.anything(),
       );
     });
@@ -273,7 +273,7 @@ describe('ProDoohSource', () => {
         duration: 10,
         metadata: {
           print_id: 'pop-uuid-001',
-          proof_of_play_url: 'https://sandbox.api.prodooh.com/public/v1/ad/proof_of_play/pop-uuid-001',
+          proof_of_play_url: 'https://sandbox.api.prodooh.com/v1/ad/proof_of_play/pop-uuid-001',
           expiration_url: 'https://sandbox.api.prodooh.com/public/v1/expiration/pop-uuid-001',
         },
       };
@@ -281,8 +281,8 @@ describe('ProDoohSource', () => {
       await source.confirmPlay(content);
 
       expect(fetchMock).toHaveBeenCalledWith(
-        'https://sandbox.api.prodooh.com/public/v1/ad/proof_of_play/pop-uuid-001',
-        { method: 'GET' },
+        'https://sandbox.api.prodooh.com/v1/ad/proof_of_play/pop-uuid-001',
+        { method: 'GET', mode: 'no-cors' },
       );
     });
 
@@ -297,7 +297,7 @@ describe('ProDoohSource', () => {
         duration: 10,
         metadata: {
           print_id: 'pop-uuid-001',
-          proof_of_play_url: 'https://sandbox.api.prodooh.com/public/v1/ad/proof_of_play/pop-uuid-001',
+          proof_of_play_url: 'https://sandbox.api.prodooh.com/v1/ad/proof_of_play/pop-uuid-001',
         },
       };
 
@@ -339,7 +339,7 @@ describe('ProDoohSource', () => {
 
       expect(fetchMock).toHaveBeenCalledWith(
         'https://sandbox.api.prodooh.com/public/v1/expiration/pop-uuid-001',
-        { method: 'GET' },
+        { method: 'GET', mode: 'no-cors' },
       );
     });
 

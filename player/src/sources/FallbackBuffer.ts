@@ -10,30 +10,47 @@
 
 import type { PreparedContent, ContentType } from './types';
 import type { PlaylistSource } from './PlaylistSource';
-
-/** Default branded content shown when no playlist exists */
-const FACTORY_CONTENT_ID = 'factory-prodooh-branding';
-const FACTORY_CONTENT_DURATION = 10;
+import { FactoryContent } from './FactoryContent';
+import type { ScreenOrientation } from './FactoryContent';
 
 export class FallbackBuffer {
   private buffer: PreparedContent[] = [];
   private readonly playlistSource: PlaylistSource;
   private readonly minBufferSize: number;
   private replenishing: boolean = false;
+  private readonly factoryContent: FactoryContent;
 
   /**
    * @param options.playlistSource - The PlaylistSource to pull content from
    * @param options.minBufferSize - Minimum items to keep pre-decoded in buffer (default: 1)
+   * @param options.orientation - Screen orientation for factory content selection (default: 'landscape')
+   * @param options.factoryContent - Optional pre-configured FactoryContent instance
    */
-  constructor(options: { playlistSource: PlaylistSource; minBufferSize?: number }) {
+  constructor(options: {
+    playlistSource: PlaylistSource;
+    minBufferSize?: number;
+    orientation?: ScreenOrientation;
+    factoryContent?: FactoryContent;
+  }) {
     this.playlistSource = options.playlistSource;
     this.minBufferSize = options.minBufferSize ?? 1;
+    this.factoryContent = options.factoryContent ?? new FactoryContent({
+      orientation: options.orientation ?? 'landscape',
+    });
   }
 
   /**
-   * Fill buffer to minBufferSize from PlaylistSource.
-   * If playlist is empty, creates factory content (branded placeholder).
-   * Non-blocking — safe to call from getNext() without awaiting.
+   * Returns the FactoryContent instance for external state management.
+   */
+  getFactoryContent(): FactoryContent {
+    return this.factoryContent;
+  }
+
+  /**
+   * Fill buffer to minBufferSize.
+   * If playlist is adopted, uses factory content for fallback (avoids advancing
+   * the PlaylistSource index which would disrupt normal loop playback).
+   * If no playlist adopted yet, pulls from PlaylistSource.
    */
   async replenish(): Promise<void> {
     if (this.replenishing) {
@@ -44,6 +61,14 @@ export class FallbackBuffer {
 
     try {
       while (this.buffer.length < this.minBufferSize) {
+        // When a real playlist is active, don't consume from PlaylistSource
+        // (that would advance its internal index and disrupt loop playback).
+        // Use factory content as the fallback buffer instead.
+        if (this.factoryContent.isPlaylistAdopted()) {
+          this.buffer.push(this.loadFactoryContent());
+          break;
+        }
+
         const content = await this.playlistSource.prefetch();
 
         if (content === null) {
@@ -96,35 +121,12 @@ export class FallbackBuffer {
   }
 
   /**
-   * Creates a simple placeholder content item representing Prodooh branding.
+   * Creates factory content from the FactoryContent module.
    * Used as last-resort fallback when no real playlist exists.
+   * Orientation-aware: selects landscape or portrait branding (Req 25.4).
    */
   private loadFactoryContent(): PreparedContent {
-    const element = document.createElement('div');
-    element.style.width = '100%';
-    element.style.height = '100%';
-    element.style.display = 'flex';
-    element.style.alignItems = 'center';
-    element.style.justifyContent = 'center';
-    element.style.backgroundColor = '#1a1a2e';
-    element.style.color = '#ffffff';
-    element.style.fontFamily = 'system-ui, sans-serif';
-    element.style.fontSize = '3rem';
-    element.textContent = 'Prodooh';
-    element.dataset.factory = 'true';
-
-    return {
-      id: FACTORY_CONTENT_ID,
-      type: 'html' as ContentType,
-      source: 'playlist',
-      mediaUrl: '',
-      duration: FACTORY_CONTENT_DURATION,
-      metadata: {
-        isFactory: true,
-        description: 'Prodooh branded placeholder — factory content',
-      },
-      element,
-    };
+    return this.factoryContent.loadContent();
   }
 
   /**

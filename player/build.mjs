@@ -8,7 +8,7 @@
  */
 
 import * as esbuild from 'esbuild';
-import { writeFileSync, mkdirSync } from 'fs';
+import { writeFileSync, mkdirSync, existsSync, cpSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -20,8 +20,26 @@ async function build() {
   mkdirSync(outdir, { recursive: true });
 
   // Bundle TypeScript source into a single JS file for Chromium
+  //
+  // Note: The player uses better-sqlite3 for local storage on the Raspberry Pi
+  // (Node.js runtime). When building for the browser (local dev/testing),
+  // we replace it with a localStorage-backed shim via an esbuild plugin.
+  const sqliteShimPlugin = {
+    name: 'sqlite-browser-shim',
+    setup(build) {
+      // Redirect better-sqlite3 imports to our browser shim
+      build.onResolve({ filter: /^better-sqlite3$/ }, () => ({
+        path: resolve(__dirname, 'src/shims/better-sqlite3-browser.ts'),
+      }));
+      // Redirect Node.js crypto to Web Crypto (already available in browser)
+      build.onResolve({ filter: /^crypto$/ }, () => ({
+        path: resolve(__dirname, 'src/shims/crypto-browser.ts'),
+      }));
+    },
+  };
+
   await esbuild.build({
-    entryPoints: [resolve(__dirname, 'src/index.ts')],
+    entryPoints: [resolve(__dirname, 'src/main.ts')],
     bundle: true,
     outfile: resolve(outdir, 'player.js'),
     format: 'esm',
@@ -31,6 +49,7 @@ async function build() {
     sourcemap: true,
     metafile: true,
     logLevel: 'info',
+    plugins: [sqliteShimPlugin],
   });
 
   // Generate a minimal HTML shell for Chromium kiosk mode
@@ -53,6 +72,22 @@ async function build() {
 </html>`;
 
   writeFileSync(resolve(outdir, 'index.html'), html);
+
+  // Copy factory content assets to dist bundle
+  const factorySource = resolve(__dirname, 'public/factory');
+  const factoryDest = resolve(outdir, 'factory');
+  if (existsSync(factorySource)) {
+    mkdirSync(factoryDest, { recursive: true });
+    cpSync(factorySource, factoryDest, { recursive: true });
+    console.log('✓ Factory content copied to dist/factory/');
+  }
+
+  // Copy setup.html to dist
+  const setupSource = resolve(__dirname, 'public/setup.html');
+  if (existsSync(setupSource)) {
+    cpSync(setupSource, resolve(outdir, 'setup.html'));
+    console.log('✓ setup.html copied to dist/');
+  }
 
   console.log('\\n✓ Build complete: dist/player.js + dist/index.html');
   console.log('  Deploy the dist/ folder to the Raspberry Pi.');
