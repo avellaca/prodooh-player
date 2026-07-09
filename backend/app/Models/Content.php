@@ -57,4 +57,12 @@ class Content extends Model
     {
         return $this->hasMany(PlaylistItem::class);
     }
+
+    /**
+     * Get the creatives that reference this content.
+     */
+    public function creatives()
+    {
+        return $this->hasMany(Creative::class);
+    }
 }

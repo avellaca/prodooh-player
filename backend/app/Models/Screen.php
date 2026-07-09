@@ -36,10 +36,7 @@ class Screen extends Model
         'orientation',
         'resolution_width',
         'resolution_height',
-        'duration_seconds',
         'schedule',
-        'loop_config',
-        'sources_config',
         'transition_type',
         'transition_duration_ms',
         'playlist_version',
@@ -65,8 +62,6 @@ class Screen extends Model
     {
         return [
             'schedule' => 'array',
-            'loop_config' => 'array',
-            'sources_config' => 'array',
             'last_heartbeat' => 'datetime',
             'last_storage_status' => 'array',
         ];
@@ -89,11 +84,19 @@ class Screen extends Model
     }
 
     /**
-     * Get the playback logs for this screen.
+     * Get the order line targets for this screen.
      */
-    public function playbackLogs()
+    public function orderLineTargets()
     {
-        return $this->hasMany(PlaybackLog::class);
+        return $this->hasMany(OrderLineTarget::class);
+    }
+
+    /**
+     * Get the impressions for this screen.
+     */
+    public function impressions()
+    {
+        return $this->hasMany(Impression::class);
     }
 
     /**

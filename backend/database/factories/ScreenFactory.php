@@ -32,22 +32,7 @@ class ScreenFactory extends Factory
             'orientation' => 'landscape',
             'resolution_width' => 1920,
             'resolution_height' => 1080,
-            'duration_seconds' => null,
             'schedule' => null,
-            'loop_config' => [
-                'slots' => [
-                    ['source' => 'prodooh', 'duration' => 10],
-                    ['source' => 'gam', 'duration' => 10],
-                    ['source' => 'url', 'duration' => 10],
-                    ['source' => 'playlist', 'duration' => 10],
-                ],
-            ],
-            'sources_config' => [
-                'prodooh' => ['enabled' => true],
-                'gam' => ['enabled' => true],
-                'url' => ['enabled' => true],
-                'playlist' => ['enabled' => true],
-            ],
             'transition_type' => null,
             'transition_duration_ms' => null,
             'playlist_version' => '',

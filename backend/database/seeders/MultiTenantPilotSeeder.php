@@ -3,6 +3,10 @@
 namespace Database\Seeders;
 
 use App\Models\Content;
+use App\Models\Creative;
+use App\Models\Order;
+use App\Models\OrderLine;
+use App\Models\OrderLineTarget;
 use App\Models\Playlist;
 use App\Models\PlaylistItem;
 use App\Models\Screen;
@@ -110,7 +114,7 @@ class MultiTenantPilotSeeder extends Seeder
             ]
         );
 
-        // ─── Screens for Tenant A (all 4 sources, incl. GAM) ───
+        // ─── Screens for Tenant A ───
         $deviceTokenA1 = 'pilot-token-tenant-a-screen-1';
         $screenA1 = Screen::updateOrCreate(
             ['venue_id' => 'prodooh-oficina-totem-1'],
@@ -123,23 +127,6 @@ class MultiTenantPilotSeeder extends Seeder
                 'orientation' => 'landscape',
                 'resolution_width' => 3840,
                 'resolution_height' => 2160,
-                'duration_seconds' => null, // inherit from group
-                'loop_config' => [
-                    'slots' => [
-                        ['position' => 0, 'source' => 'prodooh', 'duration' => 10],
-                        ['position' => 1, 'source' => 'gam', 'duration' => 10],
-                        ['position' => 2, 'source' => 'url', 'duration' => 10],
-                        ['position' => 3, 'source' => 'playlist', 'duration' => 10],
-                    ],
-                ],
-                'sources_config' => [
-                    'prodooh' => ['enabled' => true, 'api_key' => 'sandbox-key-a', 'network_id' => 'net-001'],
-                    'gam' => ['enabled' => true, 'ad_tag_url' => 'https://pubads.g.doubleclick.net/gampad/ads?sandbox=true&tenant=a'],
-                    'url' => ['enabled' => true, 'urls' => [
-                        ['url' => 'https://dashboard.prodooh.com/screen/totem-1', 'duration' => 10],
-                    ]],
-                    'playlist' => ['enabled' => true],
-                ],
             ]
         );
 
@@ -155,27 +142,10 @@ class MultiTenantPilotSeeder extends Seeder
                 'orientation' => 'landscape',
                 'resolution_width' => 3840,
                 'resolution_height' => 2160,
-                'duration_seconds' => null,
-                'loop_config' => [
-                    'slots' => [
-                        ['position' => 0, 'source' => 'prodooh', 'duration' => 10],
-                        ['position' => 1, 'source' => 'gam', 'duration' => 10],
-                        ['position' => 2, 'source' => 'url', 'duration' => 10],
-                        ['position' => 3, 'source' => 'playlist', 'duration' => 10],
-                    ],
-                ],
-                'sources_config' => [
-                    'prodooh' => ['enabled' => true, 'api_key' => 'sandbox-key-a', 'network_id' => 'net-001'],
-                    'gam' => ['enabled' => true, 'ad_tag_url' => 'https://pubads.g.doubleclick.net/gampad/ads?sandbox=true&tenant=a'],
-                    'url' => ['enabled' => true, 'urls' => [
-                        ['url' => 'https://dashboard.prodooh.com/screen/totem-2', 'duration' => 10],
-                    ]],
-                    'playlist' => ['enabled' => true],
-                ],
             ]
         );
 
-        // ─── Screens for Tenant B (NO GAM, slots redistributed) ───
+        // ─── Screens for Tenant B ───
         $deviceTokenB1 = 'pilot-token-tenant-b-screen-1';
         $screenB1 = Screen::updateOrCreate(
             ['venue_id' => 'mediaowner-lobby-screen-1'],
@@ -188,23 +158,6 @@ class MultiTenantPilotSeeder extends Seeder
                 'orientation' => 'portrait',
                 'resolution_width' => 2160,
                 'resolution_height' => 3840,
-                'duration_seconds' => 15,
-                'loop_config' => [
-                    'slots' => [
-                        ['position' => 0, 'source' => 'prodooh', 'duration' => 15],
-                        ['position' => 1, 'source' => 'playlist', 'duration' => 15],
-                        ['position' => 2, 'source' => 'url', 'duration' => 15],
-                        ['position' => 3, 'source' => 'playlist', 'duration' => 15],
-                    ],
-                ],
-                'sources_config' => [
-                    'prodooh' => ['enabled' => true, 'api_key' => 'sandbox-key-b', 'network_id' => 'net-002'],
-                    'gam' => ['enabled' => false],
-                    'url' => ['enabled' => true, 'urls' => [
-                        ['url' => 'https://mediaowner.example.com/ads/lobby', 'duration' => 15],
-                    ]],
-                    'playlist' => ['enabled' => true],
-                ],
             ]
         );
 
@@ -359,6 +312,153 @@ class MultiTenantPilotSeeder extends Seeder
             $playlistB->id => ['assigned_at' => now()],
         ]);
 
+        // ─── Orders & Order Lines for Tenant A (Prodooh Oficina) ───
+        $orderA1 = Order::updateOrCreate(
+            ['tenant_id' => $tenantA->id, 'name' => 'Campaña Corporativa Q3 2026'],
+            [
+                'advertiser_name' => 'Prodooh Internal',
+                'starts_at' => '2026-07-01',
+                'ends_at' => '2026-09-30',
+                'status' => 'active',
+            ]
+        );
+
+        $orderLineA1 = OrderLine::updateOrCreate(
+            ['order_id' => $orderA1->id, 'name' => 'Patrocinio - Video Corporativo'],
+            [
+                'priority_tier' => 'patrocinio',
+                'starts_at' => '2026-07-01',
+                'ends_at' => '2026-09-30',
+                'target_spots' => 5000,
+                'delivery_pace' => 'uniform',
+                'share_weight' => 100,
+                'status' => 'active',
+            ]
+        );
+
+        $orderLineA2 = OrderLine::updateOrCreate(
+            ['order_id' => $orderA1->id, 'name' => 'Estándar - Banner Evento'],
+            [
+                'priority_tier' => 'estandar',
+                'starts_at' => '2026-08-01',
+                'ends_at' => '2026-08-31',
+                'target_spots' => 2000,
+                'delivery_pace' => 'asap',
+                'share_weight' => 80,
+                'status' => 'active',
+            ]
+        );
+
+        $orderLineA3 = OrderLine::updateOrCreate(
+            ['order_id' => $orderA1->id, 'name' => 'Red Interna - Promo Oficina'],
+            [
+                'priority_tier' => 'red_interna',
+                'starts_at' => '2026-07-01',
+                'ends_at' => '2026-09-30',
+                'target_spots' => null,
+                'delivery_pace' => 'uniform',
+                'share_weight' => 50,
+                'status' => 'active',
+            ]
+        );
+
+        // ─── Order Line Targets (assign lines to screens/groups) ───
+        // Patrocinio line targets the entire group
+        OrderLineTarget::updateOrCreate(
+            ['order_line_id' => $orderLineA1->id, 'screen_group_id' => $groupA->id],
+            ['screen_id' => null]
+        );
+
+        // Estándar line targets only screen 1
+        OrderLineTarget::updateOrCreate(
+            ['order_line_id' => $orderLineA2->id, 'screen_id' => $screenA1->id],
+            ['screen_group_id' => null]
+        );
+
+        // Red interna targets the entire group
+        OrderLineTarget::updateOrCreate(
+            ['order_line_id' => $orderLineA3->id, 'screen_group_id' => $groupA->id],
+            ['screen_id' => null]
+        );
+
+        // ─── Creatives (link content to order lines with active dates) ───
+        Creative::updateOrCreate(
+            ['order_line_id' => $orderLineA1->id, 'content_id' => $contentA2->id],
+            [
+                'weight' => 100,
+                'active_dates' => ['2026-07-01', '2026-07-15', '2026-08-01', '2026-08-15', '2026-09-01', '2026-09-15'],
+            ]
+        );
+
+        Creative::updateOrCreate(
+            ['order_line_id' => $orderLineA2->id, 'content_id' => $contentA3->id],
+            [
+                'weight' => 100,
+                'active_dates' => ['2026-08-01', '2026-08-10', '2026-08-20', '2026-08-31'],
+            ]
+        );
+
+        Creative::updateOrCreate(
+            ['order_line_id' => $orderLineA3->id, 'content_id' => $contentA1->id],
+            [
+                'weight' => 60,
+                'active_dates' => ['2026-07-01', '2026-08-01', '2026-09-01'],
+            ]
+        );
+
+        Creative::updateOrCreate(
+            ['order_line_id' => $orderLineA3->id, 'content_id' => $contentA3->id],
+            [
+                'weight' => 40,
+                'active_dates' => ['2026-07-15', '2026-08-15', '2026-09-15'],
+            ]
+        );
+
+        // ─── Order for Tenant B ───
+        $orderB1 = Order::updateOrCreate(
+            ['tenant_id' => $tenantB->id, 'name' => 'Campaña Lobby Verano 2026'],
+            [
+                'advertiser_name' => 'Marca Externa',
+                'starts_at' => '2026-07-15',
+                'ends_at' => '2026-08-31',
+                'status' => 'active',
+            ]
+        );
+
+        $orderLineB1 = OrderLine::updateOrCreate(
+            ['order_id' => $orderB1->id, 'name' => 'Patrocinio - Ad Portrait'],
+            [
+                'priority_tier' => 'patrocinio',
+                'starts_at' => '2026-07-15',
+                'ends_at' => '2026-08-31',
+                'target_spots' => 3000,
+                'delivery_pace' => 'uniform',
+                'share_weight' => 100,
+                'status' => 'active',
+            ]
+        );
+
+        OrderLineTarget::updateOrCreate(
+            ['order_line_id' => $orderLineB1->id, 'screen_id' => $screenB1->id],
+            ['screen_group_id' => null]
+        );
+
+        Creative::updateOrCreate(
+            ['order_line_id' => $orderLineB1->id, 'content_id' => $contentB1->id],
+            [
+                'weight' => 70,
+                'active_dates' => ['2026-07-15', '2026-08-01', '2026-08-15', '2026-08-31'],
+            ]
+        );
+
+        Creative::updateOrCreate(
+            ['order_line_id' => $orderLineB1->id, 'content_id' => $contentB2->id],
+            [
+                'weight' => 30,
+                'active_dates' => ['2026-08-01', '2026-08-15'],
+            ]
+        );
+
         // ─── Output summary ───
         $this->command->info('');
         $this->command->info('╔══════════════════════════════════════════════════════════════╗');
@@ -366,17 +466,21 @@ class MultiTenantPilotSeeder extends Seeder
         $this->command->info('╠══════════════════════════════════════════════════════════════╣');
         $this->command->info('║                                                            ║');
         $this->command->info('║  Tenant A: Prodooh Oficina                                 ║');
-        $this->command->info('║    • Sources: Prodooh + GAM + URL + Playlist (all active)  ║');
         $this->command->info('║    • Screens: Totem Oficina 1, Totem Oficina 2             ║');
         $this->command->info('║    • Playlist: 3 items (2 images + 1 video)                ║');
+        $this->command->info('║    • Order: Campaña Corporativa Q3 2026 (3 líneas)         ║');
+        $this->command->info('║      - Patrocinio: Video Corporativo → grupo completo      ║');
+        $this->command->info('║      - Estándar: Banner Evento → solo Totem 1              ║');
+        $this->command->info('║      - Red Interna: Promo Oficina → grupo completo         ║');
         $this->command->info('║    • Admin: admin-a@prodooh.com / password                 ║');
         $this->command->info('║    • Device token (screen 1): ' . $deviceTokenA1 . '  ║');
         $this->command->info('║    • Device token (screen 2): ' . $deviceTokenA2 . '  ║');
         $this->command->info('║                                                            ║');
         $this->command->info('║  Tenant B: Media Owner Demo                                ║');
-        $this->command->info('║    • Sources: Prodooh + URL + Playlist (GAM DISABLED)      ║');
         $this->command->info('║    • Screens: Lobby Screen 1 (portrait)                    ║');
         $this->command->info('║    • Playlist: 3 items (1 image + 1 video + 1 URL)         ║');
+        $this->command->info('║    • Order: Campaña Lobby Verano 2026 (1 línea)            ║');
+        $this->command->info('║      - Patrocinio: Ad Portrait → Lobby Screen 1            ║');
         $this->command->info('║    • Admin: admin-b@mediaowner.com / password              ║');
         $this->command->info('║    • Device token (screen 1): ' . $deviceTokenB1 . '  ║');
         $this->command->info('║                                                            ║');

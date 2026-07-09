@@ -99,10 +99,10 @@ class Tenant extends Model
     }
 
     /**
-     * Get the playback logs for the tenant.
+     * Get the orders for the tenant.
      */
-    public function playbackLogs()
+    public function orders()
     {
-        return $this->hasMany(PlaybackLog::class);
+        return $this->hasMany(Order::class);
     }
 }

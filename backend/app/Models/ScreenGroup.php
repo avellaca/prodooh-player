@@ -60,4 +60,12 @@ class ScreenGroup extends Model
     {
         return $this->hasMany(Screen::class, 'group_id');
     }
+
+    /**
+     * Get the order line targets for this screen group.
+     */
+    public function orderLineTargets()
+    {
+        return $this->hasMany(OrderLineTarget::class);
+    }
 }
