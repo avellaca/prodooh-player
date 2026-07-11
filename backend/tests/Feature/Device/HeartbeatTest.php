@@ -82,7 +82,7 @@ class HeartbeatTest extends TestCase
         $screen->refresh();
         $this->assertEquals('online', $screen->status);
         $this->assertNotNull($screen->last_heartbeat);
-        $this->assertEquals('v1.2.3', $screen->playlist_version);
+        $this->assertEquals('v1.2.3', $screen->manifest_version);
         $this->assertEquals([
             'total_mb' => 32000,
             'available_mb' => 25000,

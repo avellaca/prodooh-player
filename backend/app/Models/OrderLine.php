@@ -3,11 +3,12 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class OrderLine extends Model
 {
-    use HasUuids;
+    use HasFactory, HasUuids;
 
     public $incrementing = false;
     protected $keyType = 'string';

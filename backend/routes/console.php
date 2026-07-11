@@ -9,3 +9,4 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('devices:check-status')->everyMinute();
+Schedule::command('manifest:rollover')->daily();

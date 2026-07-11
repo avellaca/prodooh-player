@@ -3,17 +3,16 @@
 use App\Http\Controllers\Admin\AdminAuthController;
 use App\Http\Controllers\Admin\ContentController;
 use App\Http\Controllers\Admin\ContentPreviewController;
-use App\Http\Controllers\Admin\LoopConfigController;
 use App\Http\Controllers\Admin\PlaybackAnalyticsController;
 use App\Http\Controllers\Admin\PlaylistController;
 use App\Http\Controllers\Admin\ScreenController;
 use App\Http\Controllers\Admin\ScreenGroupController;
 use App\Http\Controllers\Admin\ScreenshotViewController;
-use App\Http\Controllers\Admin\SourceToggleController;
 use App\Http\Controllers\Admin\TenantController;
-use App\Http\Controllers\Device\ConfigSyncController;
 use App\Http\Controllers\Device\DeviceAuthController;
 use App\Http\Controllers\Device\HeartbeatController;
+use App\Http\Controllers\Device\ImpressionsController;
+use App\Http\Controllers\Device\ManifestController;
 use App\Http\Controllers\Device\PlaybackLogController;
 use App\Http\Controllers\Device\PlaylistSyncController;
 use App\Http\Controllers\Device\ScreenshotController;
@@ -37,13 +36,7 @@ Route::prefix('device')->group(function () {
 
     // Protected device routes (JWT auth)
     Route::middleware([DeviceJwtAuth::class])->group(function () {
-        Route::get('/config', ConfigSyncController::class)->name('device.config');
-
         Route::post('/heartbeat', HeartbeatController::class)->name('device.heartbeat');
-
-        Route::get('/playlist', [PlaylistSyncController::class, 'index'])->name('device.playlist');
-
-        Route::post('/playlist/confirm', [PlaylistSyncController::class, 'confirm'])->name('device.playlist.confirm');
 
         Route::get('/content/{id}/file', [PlaylistSyncController::class, 'serveContentFile'])->name('device.content.file');
 
@@ -52,8 +45,32 @@ Route::prefix('device')->group(function () {
         Route::post('/screenshot', [ScreenshotController::class, 'store'])->name('device.screenshot');
 
         Route::post('/prodooh/ad', [\App\Http\Controllers\Device\ProDoohProxyController::class, 'fetchAd'])->name('device.prodooh.ad');
+
+        // Manifest-based endpoints (new motor de prioridad)
+        Route::get('/manifest', [ManifestController::class, 'show'])->name('device.manifest');
+        Route::post('/manifest/confirm', [ManifestController::class, 'confirm'])->name('device.manifest.confirm');
+        Route::post('/impressions', [ImpressionsController::class, 'store'])->name('device.impressions');
     });
 });
+
+/*
+|--------------------------------------------------------------------------
+| Deprecated Device Endpoints — 410 Gone
+|--------------------------------------------------------------------------
+|
+| These stubs respond with 410 Gone for old firmware that may still
+| call deprecated endpoints. They are outside auth middleware because
+| old devices might have expired tokens.
+|
+*/
+
+$deprecatedMessage = ['message' => 'This endpoint has been deprecated. Please update your device firmware.'];
+
+Route::get('/device/playlist', fn () => response()->json($deprecatedMessage, 410))->name('device.playlist.deprecated');
+Route::post('/device/playlist/confirm', fn () => response()->json($deprecatedMessage, 410))->name('device.playlist.confirm.deprecated');
+Route::get('/device/config', fn () => response()->json($deprecatedMessage, 410))->name('device.config.deprecated');
+Route::put('/screens/{id}/loop', fn () => response()->json($deprecatedMessage, 410))->name('screens.loop.deprecated');
+Route::put('/screens/{id}/sources', fn () => response()->json($deprecatedMessage, 410))->name('screens.sources.deprecated');
 
 /*
 |--------------------------------------------------------------------------
@@ -103,12 +120,6 @@ Route::prefix('admin')->group(function () {
             Route::put('/groups/{id}', [ScreenGroupController::class, 'update'])->name('admin.groups.update');
             Route::delete('/groups/{id}', [ScreenGroupController::class, 'destroy'])->name('admin.groups.destroy');
             Route::post('/groups/{id}/screens', [ScreenGroupController::class, 'assignScreens'])->name('admin.groups.assignScreens');
-
-            // Loop configuration
-            Route::put('/screens/{id}/loop', [LoopConfigController::class, 'update'])->name('admin.screens.loop.update');
-
-            // Source toggle (enable/disable sources per screen)
-            Route::put('/screens/{id}/sources', [SourceToggleController::class, 'update'])->name('admin.screens.sources.update');
 
             // Playlist management
             Route::get('/playlists', [PlaylistController::class, 'index'])->name('admin.playlists.index');

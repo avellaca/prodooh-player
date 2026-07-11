@@ -9,7 +9,7 @@
  * Validates: Requirements 16.1, 16.2, 16.3, 16.4, 16.5, 16.6
  */
 
-import type { ScheduleChecker } from '../engine/LoopEngine';
+import type { ScheduleChecker } from '../engine/types';
 import type { ScheduleConfig, ScheduleRule } from '../storage/types';
 
 export interface ScheduleManagerOptions {
@@ -20,7 +20,7 @@ export interface ScheduleManagerOptions {
 }
 
 /**
- * ScheduleManager implements the ScheduleChecker interface from LoopEngine.
+ * ScheduleManager implements the ScheduleChecker interface.
  * It determines whether the player should be active based on timezone-aware
  * schedule rules with per-day granularity.
  */

@@ -14,7 +14,7 @@
  * - Developer machine (browser for local testing)
  */
 
-import type { MediaDownloader } from './PlaylistSyncManager';
+import type { MediaDownloader } from './types';
 
 export interface BrowserMediaDownloaderOptions {
   /** Function that returns the current Bearer token for authenticated requests */

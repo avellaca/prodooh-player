@@ -39,7 +39,7 @@ class Screen extends Model
         'schedule',
         'transition_type',
         'transition_duration_ms',
-        'playlist_version',
+        'manifest_version',
         'last_heartbeat',
         'last_storage_status',
     ];
@@ -114,5 +114,13 @@ class Screen extends Model
     {
         return $this->belongsToMany(Playlist::class, 'screen_playlists')
             ->withPivot('assigned_at');
+    }
+
+    /**
+     * Get the current manifest for this screen.
+     */
+    public function screenManifest()
+    {
+        return $this->hasOne(ScreenManifest::class, 'screen_id');
     }
 }

@@ -20,14 +20,13 @@ export type {
   PlaybackResult,
 } from './PlaybackLogger';
 
-export { PlaylistSyncManager } from './PlaylistSyncManager';
-export type {
-  PlaylistManifest,
-  PlaylistManifestItem,
-  PlaylistConfirmation,
-  DownloadResult,
-  MediaDownloader,
-} from './PlaylistSyncManager';
+export type { MediaDownloader } from './types';
 
 export { BrowserMediaDownloader } from './BrowserMediaDownloader';
 export type { BrowserMediaDownloaderOptions } from './BrowserMediaDownloader';
+
+export { ImpressionReporter } from './ImpressionReporter';
+export type { ImpressionRecord } from './ImpressionReporter';
+
+export { ManifestSyncManager } from './ManifestSyncManager';
+export type { Manifest, ManifestItem, ManifestUpdateCallback } from './ManifestSyncManager';

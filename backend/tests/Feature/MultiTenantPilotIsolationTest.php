@@ -40,7 +40,7 @@ class MultiTenantPilotIsolationTest extends TestCase
         $this->assertNotEquals($tenantA->api_credential, $tenantB->api_credential);
     }
 
-    public function test_tenant_a_has_gam_active_tenant_b_does_not(): void
+    public function test_each_tenant_has_distinct_screens(): void
     {
         $tenantA = Tenant::where('name', 'Prodooh Oficina')->first();
         $tenantB = Tenant::where('name', 'Media Owner Demo')->first();
@@ -48,8 +48,9 @@ class MultiTenantPilotIsolationTest extends TestCase
         $screenA = Screen::where('tenant_id', $tenantA->id)->first();
         $screenB = Screen::where('tenant_id', $tenantB->id)->first();
 
-        $this->assertTrue($screenA->sources_config['gam']['enabled']);
-        $this->assertFalse($screenB->sources_config['gam']['enabled']);
+        $this->assertNotNull($screenA);
+        $this->assertNotNull($screenB);
+        $this->assertNotEquals($screenA->id, $screenB->id);
     }
 
     public function test_tenant_a_admin_sees_only_own_screens(): void
