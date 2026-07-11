@@ -8,12 +8,16 @@
  * Validates: Requirements 11.1, 11.2, 11.3, 11.4
  */
 
+import type { SspRetryQueue } from '../sync/SspRetryQueue';
+
 /** Represents the content returned by an SSP ad request. */
 export interface SspContent {
   printId: string;
   assetUrl: string;
   durationSeconds: number;
   mimeType?: string;
+  popUrl: string;      // URL para confirmar proof_of_play (GET)
+  expireUrl: string;   // URL para notificar expiración (GET/POST)
 }
 
 /** Client interface for SSP (ad server) communication. */
@@ -22,6 +26,8 @@ export interface SspClient {
   requestAd(durationSeconds: number): Promise<SspContent | null>;
   /** Expire (cancel) a previously fetched ad that was not reproduced. */
   expireAd(printId: string): Promise<void>;
+  /** Confirm proof of play for a reproduced ad. GET to the pop_url. */
+  proofOfPlay(printId: string): Promise<void>;
 }
 
 /**
@@ -35,10 +41,12 @@ export interface SspClient {
  */
 export class SspPrefetcher {
   private sspClient: SspClient;
+  private retryQueue: SspRetryQueue | null;
   private currentContent: SspContent | null = null;
 
-  constructor(sspClient: SspClient) {
+  constructor(sspClient: SspClient, retryQueue?: SspRetryQueue) {
     this.sspClient = sspClient;
+    this.retryQueue = retryQueue ?? null;
   }
 
   /**
@@ -54,10 +62,20 @@ export class SspPrefetcher {
   async prefetch(durationSeconds: number): Promise<SspContent | null> {
     // If there's already content stored, expire it first
     if (this.currentContent) {
-      try {
-        await this.sspClient.expireAd(this.currentContent.printId);
-      } catch {
-        // Best-effort expiration — proceed regardless
+      const { printId, expireUrl } = this.currentContent;
+      if (this.retryQueue && expireUrl) {
+        // Use retry queue for resilient expiration with retry on transient failure
+        try {
+          await this.retryQueue.expire(printId, expireUrl);
+        } catch {
+          // Best-effort expiration via retry queue — proceed regardless
+        }
+      } else {
+        try {
+          await this.sspClient.expireAd(printId);
+        } catch {
+          // Best-effort expiration — proceed regardless
+        }
       }
       this.currentContent = null;
     }
@@ -77,11 +95,27 @@ export class SspPrefetcher {
    * This is called when the manifest changes before the SSP content gets played,
    * so the SSP doesn't count it as delivered.
    *
+   * If a SspRetryQueue is available, delegates to it for resilient retry behavior.
+   * Otherwise, falls back to the original fire-and-forget via SspClient.expireAd.
+   *
    * @param printId - The print_id to expire.
    */
   async expire(printId: string): Promise<void> {
+    // Get the expireUrl from currentContent before clearing it
+    const expireUrl = this.currentContent?.printId === printId
+      ? this.currentContent.expireUrl
+      : undefined;
+
     try {
-      await this.sspClient.expireAd(printId);
+      if (this.retryQueue && expireUrl) {
+        // Delegate to SspRetryQueue for resilient retry behavior
+        await this.retryQueue.expire(printId, expireUrl);
+      } else {
+        // Fallback: fire-and-forget via SspClient directly
+        await this.sspClient.expireAd(printId);
+      }
+    } catch {
+      // Best-effort — don't propagate errors regardless of path
     } finally {
       // Always clear stored content after expiration attempt
       if (this.currentContent?.printId === printId) {

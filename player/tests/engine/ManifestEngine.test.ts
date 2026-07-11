@@ -60,7 +60,7 @@ function createMockSspPrefetcher(opts: { isReady: boolean } = { isReady: false }
     isReady: vi.fn().mockReturnValue(opts.isReady),
     getContent: vi.fn().mockReturnValue(
       opts.isReady
-        ? { printId: 'print-1', assetUrl: 'https://ssp.example.com/ad.mp4', durationSeconds: 10 }
+        ? { printId: 'print-1', assetUrl: 'https://ssp.example.com/ad.mp4', durationSeconds: 10, popUrl: 'https://ssp.example.com/pop/print-1', expireUrl: 'https://ssp.example.com/expire/print-1' }
         : null,
     ),
   };

@@ -2,13 +2,10 @@
 
 namespace Database\Seeders;
 
-use App\Models\Content;
-use App\Models\Creative;
 use App\Models\Order;
 use App\Models\OrderLine;
 use App\Models\OrderLineTarget;
 use App\Models\Playlist;
-use App\Models\PlaylistItem;
 use App\Models\Screen;
 use App\Models\ScreenGroup;
 use App\Models\Tenant;
@@ -36,9 +33,9 @@ class MultiTenantPilotSeeder extends Seeder
      */
     public function run(): void
     {
-        // ─── Tenant A: Prodooh Oficina (all sources active, incl. GAM) ───
+        // ─── Tenant A: Prodooh (all sources active, incl. GAM) ───
         $tenantA = Tenant::updateOrCreate(
-            ['name' => 'Prodooh Oficina'],
+            ['name' => 'Prodooh'],
             [
                 'api_credential' => Str::uuid()->toString(),
                 'default_duration_seconds' => 10,
@@ -91,7 +88,7 @@ class MultiTenantPilotSeeder extends Seeder
 
         // ─── Screen Groups ───
         $groupA = ScreenGroup::updateOrCreate(
-            ['tenant_id' => $tenantA->id, 'name' => 'Oficina Piso 1'],
+            ['tenant_id' => $tenantA->id, 'name' => 'Oficina Piso 17'],
             [
                 'duration_seconds' => 10,
                 'orientation' => 'landscape',
@@ -121,7 +118,7 @@ class MultiTenantPilotSeeder extends Seeder
             [
                 'tenant_id' => $tenantA->id,
                 'group_id' => $groupA->id,
-                'name' => 'Totem Oficina 1',
+                'name' => 'Totem 1',
                 'device_token_hash' => Hash::make($deviceTokenA1),
                 'status' => 'offline',
                 'orientation' => 'landscape',
@@ -136,7 +133,7 @@ class MultiTenantPilotSeeder extends Seeder
             [
                 'tenant_id' => $tenantA->id,
                 'group_id' => $groupA->id,
-                'name' => 'Totem Oficina 2',
+                'name' => 'Totem 2',
                 'device_token_hash' => Hash::make($deviceTokenA2),
                 'status' => 'offline',
                 'orientation' => 'landscape',
@@ -161,145 +158,17 @@ class MultiTenantPilotSeeder extends Seeder
             ]
         );
 
-        // ─── Content for Tenant A ───
-        $contentA1 = Content::updateOrCreate(
-            ['tenant_id' => $tenantA->id, 'filename' => 'promo-oficina-landscape.jpg'],
-            [
-                'mime_type' => 'image/jpeg',
-                'storage_path' => 'tenants/' . $tenantA->id . '/content/promo-oficina-landscape.jpg',
-                'file_size_bytes' => 524288,
-                'width' => 3840,
-                'height' => 2160,
-                'orientation' => 'landscape',
-                'rotation' => 0,
-                'checksum_sha256' => hash('sha256', 'promo-oficina-landscape-content-a'),
-            ]
-        );
-
-        $contentA2 = Content::updateOrCreate(
-            ['tenant_id' => $tenantA->id, 'filename' => 'video-corporativo.mp4'],
-            [
-                'mime_type' => 'video/mp4',
-                'storage_path' => 'tenants/' . $tenantA->id . '/content/video-corporativo.mp4',
-                'file_size_bytes' => 10485760,
-                'width' => 3840,
-                'height' => 2160,
-                'duration_seconds' => 30,
-                'orientation' => 'landscape',
-                'rotation' => 0,
-                'checksum_sha256' => hash('sha256', 'video-corporativo-content-a'),
-            ]
-        );
-
-        $contentA3 = Content::updateOrCreate(
-            ['tenant_id' => $tenantA->id, 'filename' => 'banner-evento.png'],
-            [
-                'mime_type' => 'image/png',
-                'storage_path' => 'tenants/' . $tenantA->id . '/content/banner-evento.png',
-                'file_size_bytes' => 1048576,
-                'width' => 3840,
-                'height' => 2160,
-                'orientation' => 'landscape',
-                'rotation' => 0,
-                'checksum_sha256' => hash('sha256', 'banner-evento-content-a'),
-            ]
-        );
-
-        // ─── Content for Tenant B ───
-        $contentB1 = Content::updateOrCreate(
-            ['tenant_id' => $tenantB->id, 'filename' => 'ad-portrait-lobby.jpg'],
-            [
-                'mime_type' => 'image/jpeg',
-                'storage_path' => 'tenants/' . $tenantB->id . '/content/ad-portrait-lobby.jpg',
-                'file_size_bytes' => 614400,
-                'width' => 2160,
-                'height' => 3840,
-                'orientation' => 'portrait',
-                'rotation' => 0,
-                'checksum_sha256' => hash('sha256', 'ad-portrait-lobby-content-b'),
-            ]
-        );
-
-        $contentB2 = Content::updateOrCreate(
-            ['tenant_id' => $tenantB->id, 'filename' => 'promo-vertical.mp4'],
-            [
-                'mime_type' => 'video/mp4',
-                'storage_path' => 'tenants/' . $tenantB->id . '/content/promo-vertical.mp4',
-                'file_size_bytes' => 8388608,
-                'width' => 2160,
-                'height' => 3840,
-                'duration_seconds' => 20,
-                'orientation' => 'portrait',
-                'rotation' => 0,
-                'checksum_sha256' => hash('sha256', 'promo-vertical-content-b'),
-            ]
-        );
-
         // ─── Playlist for Tenant A ───
         $playlistA = Playlist::updateOrCreate(
             ['tenant_id' => $tenantA->id, 'name' => 'Playlist Oficina Principal'],
             ['version' => 'v1.0.0']
         );
 
-        // Clear existing items and recreate
-        PlaylistItem::where('playlist_id', $playlistA->id)->delete();
-
-        PlaylistItem::create([
-            'playlist_id' => $playlistA->id,
-            'content_id' => $contentA1->id,
-            'type' => 'image',
-            'duration_seconds' => 10,
-            'position' => 0,
-        ]);
-
-        PlaylistItem::create([
-            'playlist_id' => $playlistA->id,
-            'content_id' => $contentA2->id,
-            'type' => 'video',
-            'duration_seconds' => 30,
-            'position' => 1,
-        ]);
-
-        PlaylistItem::create([
-            'playlist_id' => $playlistA->id,
-            'content_id' => $contentA3->id,
-            'type' => 'image',
-            'duration_seconds' => 10,
-            'position' => 2,
-        ]);
-
         // ─── Playlist for Tenant B ───
         $playlistB = Playlist::updateOrCreate(
             ['tenant_id' => $tenantB->id, 'name' => 'Playlist Lobby Media Owner'],
             ['version' => 'v1.0.0']
         );
-
-        PlaylistItem::where('playlist_id', $playlistB->id)->delete();
-
-        PlaylistItem::create([
-            'playlist_id' => $playlistB->id,
-            'content_id' => $contentB1->id,
-            'type' => 'image',
-            'duration_seconds' => 15,
-            'position' => 0,
-        ]);
-
-        PlaylistItem::create([
-            'playlist_id' => $playlistB->id,
-            'content_id' => $contentB2->id,
-            'type' => 'video',
-            'duration_seconds' => 20,
-            'position' => 1,
-        ]);
-
-        PlaylistItem::create([
-            'playlist_id' => $playlistB->id,
-            'type' => 'url',
-            'url' => 'https://mediaowner.example.com/promo-page',
-            'duration_seconds' => 15,
-            'position' => 2,
-            'refresh_interval' => 300,
-        ]);
 
         // ─── Assign Playlists to Screens ───
         $screenA1->playlists()->syncWithoutDetaching([
@@ -381,39 +250,6 @@ class MultiTenantPilotSeeder extends Seeder
             ['screen_id' => null]
         );
 
-        // ─── Creatives (link content to order lines with active dates) ───
-        Creative::updateOrCreate(
-            ['order_line_id' => $orderLineA1->id, 'content_id' => $contentA2->id],
-            [
-                'weight' => 100,
-                'active_dates' => ['2026-07-01', '2026-07-15', '2026-08-01', '2026-08-15', '2026-09-01', '2026-09-15'],
-            ]
-        );
-
-        Creative::updateOrCreate(
-            ['order_line_id' => $orderLineA2->id, 'content_id' => $contentA3->id],
-            [
-                'weight' => 100,
-                'active_dates' => ['2026-08-01', '2026-08-10', '2026-08-20', '2026-08-31'],
-            ]
-        );
-
-        Creative::updateOrCreate(
-            ['order_line_id' => $orderLineA3->id, 'content_id' => $contentA1->id],
-            [
-                'weight' => 60,
-                'active_dates' => ['2026-07-01', '2026-08-01', '2026-09-01'],
-            ]
-        );
-
-        Creative::updateOrCreate(
-            ['order_line_id' => $orderLineA3->id, 'content_id' => $contentA3->id],
-            [
-                'weight' => 40,
-                'active_dates' => ['2026-07-15', '2026-08-15', '2026-09-15'],
-            ]
-        );
-
         // ─── Order for Tenant B ───
         $orderB1 = Order::updateOrCreate(
             ['tenant_id' => $tenantB->id, 'name' => 'Campaña Lobby Verano 2026'],
@@ -443,31 +279,15 @@ class MultiTenantPilotSeeder extends Seeder
             ['screen_group_id' => null]
         );
 
-        Creative::updateOrCreate(
-            ['order_line_id' => $orderLineB1->id, 'content_id' => $contentB1->id],
-            [
-                'weight' => 70,
-                'active_dates' => ['2026-07-15', '2026-08-01', '2026-08-15', '2026-08-31'],
-            ]
-        );
-
-        Creative::updateOrCreate(
-            ['order_line_id' => $orderLineB1->id, 'content_id' => $contentB2->id],
-            [
-                'weight' => 30,
-                'active_dates' => ['2026-08-01', '2026-08-15'],
-            ]
-        );
-
         // ─── Output summary ───
         $this->command->info('');
         $this->command->info('╔══════════════════════════════════════════════════════════════╗');
         $this->command->info('║       MULTI-TENANT PILOT DEMONSTRATION SEEDED              ║');
         $this->command->info('╠══════════════════════════════════════════════════════════════╣');
         $this->command->info('║                                                            ║');
-        $this->command->info('║  Tenant A: Prodooh Oficina                                 ║');
-        $this->command->info('║    • Screens: Totem Oficina 1, Totem Oficina 2             ║');
-        $this->command->info('║    • Playlist: 3 items (2 images + 1 video)                ║');
+        $this->command->info('║  Tenant A: Prodooh                                         ║');
+        $this->command->info('║    • Screens: Totem 1, Totem 2                             ║');
+        $this->command->info('║    • Grupo: Oficina Piso 17                                ║');
         $this->command->info('║    • Order: Campaña Corporativa Q3 2026 (3 líneas)         ║');
         $this->command->info('║      - Patrocinio: Video Corporativo → grupo completo      ║');
         $this->command->info('║      - Estándar: Banner Evento → solo Totem 1              ║');

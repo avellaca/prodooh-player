@@ -32,6 +32,7 @@ import { ManifestEngine } from './engine/ManifestEngine';
 import { SspPrefetcher } from './engine/SspPrefetcher';
 import type { SspClient, SspContent } from './engine/SspPrefetcher';
 import { BrowserMediaDownloader } from './sync/BrowserMediaDownloader';
+import { SspRetryQueue } from './sync/SspRetryQueue';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -175,13 +176,15 @@ export async function bootPlayer(options: BootOptions = {}): Promise<BootResult>
             }),
           });
           if (!response.ok) return null;
-          const data = await response.json() as { media?: string; print_id?: string; type?: string };
+          const data = await response.json() as { media?: string; print_id?: string; type?: string; pop_url?: string; expire_url?: string };
           if (!data.media || !data.print_id) return null;
           return {
             printId: data.print_id,
             assetUrl: data.media,
             durationSeconds,
             mimeType: data.type,
+            popUrl: data.pop_url ?? `${sspProxyUrl}/pop/${data.print_id}`,
+            expireUrl: data.expire_url ?? `${sspProxyUrl}/expire/${data.print_id}`,
           };
         } catch {
           return null;
@@ -206,8 +209,27 @@ export async function bootPlayer(options: BootOptions = {}): Promise<BootResult>
           // Best-effort expiration
         }
       },
+      async proofOfPlay(printId: string): Promise<void> {
+        if (!sspProxyUrl) return;
+        try {
+          const headers: Record<string, string> = {};
+          const token = backendApi!.getToken();
+          if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+          }
+          await fetch(`${sspProxyUrl}/pop/${printId}`, {
+            method: 'GET',
+            headers,
+          });
+        } catch {
+          // Best-effort proof of play
+        }
+      },
     };
-    const sspPrefetcher = new SspPrefetcher(sspClient);
+    // 4b. SspRetryQueue — resilient retry for SSP proof_of_play / expiration calls
+    const sspRetryQueue = new SspRetryQueue(database, sspClient);
+
+    const sspPrefetcher = new SspPrefetcher(sspClient, sspRetryQueue);
 
     // 5. ManifestEngine — executes the pre-resolved manifest sequence
     const initialManifest: Manifest = manifestSyncMgr.getManifest() ?? {
@@ -235,6 +257,14 @@ export async function bootPlayer(options: BootOptions = {}): Promise<BootResult>
           };
           impressionReporter!.enqueue(impression);
         }
+
+        // SSP proof_of_play — confirm reproduction to SSP via retry queue (Req 7.2)
+        if (item.type === 'prodooh_ssp_call' && result === 'success') {
+          const sspContent = sspPrefetcher.getContent();
+          if (sspContent) {
+            void sspRetryQueue.proofOfPlay(sspContent.printId, sspContent.popUrl);
+          }
+        }
       },
       sspPrefetcher,
     });
@@ -249,6 +279,9 @@ export async function bootPlayer(options: BootOptions = {}): Promise<BootResult>
 
     // 8. Start ImpressionReporter periodic flush (every 30s)
     impressionReporter.startPeriodicFlush(30_000);
+
+    // 8b. Start SspRetryQueue periodic flush (every 5s default)
+    sspRetryQueue.startPeriodicFlush();
 
     // 9. Perform initial manifest sync
     try {

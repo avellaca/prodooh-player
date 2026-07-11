@@ -48,7 +48,7 @@ export default function Header() {
   return (
     <header className="bg-navy text-white">
       <div className="flex h-14 items-center px-6">
-        <span className="text-lg font-semibold mr-8">Prodooh Admin</span>
+        <span className="text-lg font-semibold mr-8">Prodooh Player</span>
 
         <nav className="flex items-center gap-1">
           {navLinks.map((link) => (

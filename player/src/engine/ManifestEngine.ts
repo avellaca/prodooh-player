@@ -189,7 +189,9 @@ export class ManifestEngine {
           duration_seconds: sspContent.durationSeconds,
           asset_url: sspContent.assetUrl,
         };
-        await this.playbackFn(sspItem);
+        const result = await this.playbackFn(sspItem);
+        // Emit onItemComplete for SSP items so proof-of-play can be triggered
+        this.onItemComplete?.(item, result);
         this.sspPrefetcher.cleanup();
         return;
       }
