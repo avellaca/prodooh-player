@@ -2,8 +2,8 @@
  * Main entry point — Auto-boots the player and wires rendering.
  *
  * This file is the actual entry point loaded by index.html in the browser.
- * It calls bootPlayer() with an onPlay callback that drives the
- * FullscreenRenderer, displaying content in #player-root.
+ * It calls bootPlayer() with callbacks that drive the FullscreenRenderer,
+ * displaying content in #player-root.
  *
  * Works in both:
  * - Raspberry Pi (Chromium kiosk mode)
@@ -12,7 +12,6 @@
 
 import { bootPlayer } from './boot';
 import { FullscreenRenderer } from './display/FullscreenRenderer';
-import type { PreparedContent } from './sources/types';
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -96,45 +95,27 @@ async function main(): Promise<void> {
   try {
     // Prepare the renderer (created after boot succeeds)
     let renderer: FullscreenRenderer | null = null;
-    let firstContent = true;
 
-    const result = await bootPlayer({
-      onPlay: (content: PreparedContent) => {
-        if (!renderer) return;
-        if (firstContent) {
-          renderer.show(content);
-          firstContent = false;
-        } else {
-          void renderer.transitionTo(content);
-        }
-      },
-      onSleep: () => {
-        if (root) {
-          showMessage(root, '💤 Fuera de horario', 'El player se activará en horario operativo');
-        }
-      },
-      onWake: () => {
-        if (renderer) {
-          resetRootForPlayer(root);
-          renderer = new FullscreenRenderer(root, { type: 'fade', durationMs: 500 });
-          firstContent = true;
-        }
-      },
-    });
+    const result = await bootPlayer({});
 
-    if (!result.success || !result.engine) {
+    if (!result.success) {
       showMessage(root, '❌ Error de inicio', result.error ?? 'No se pudo iniciar el engine');
       return;
     }
 
-    console.log(`[main] Boot OK. Mode: ${result.mode}, Sync: ${result.syncManager ? 'active' : 'none'}`);
+    console.log(`[main] Boot OK. Mode: ${result.mode}`);
 
     // Set up the renderer
     resetRootForPlayer(root);
     renderer = new FullscreenRenderer(root, { type: 'fade', durationMs: 500 });
 
-    // Start the loop engine — it will call onPlay for each content slot
-    result.engine.run();
+    // Start the ManifestEngine
+    if (result.manifestEngine) {
+      console.log('[main] Starting ManifestEngine...');
+      void result.manifestEngine.run();
+    } else {
+      showMessage(root, '⏳ Esperando manifiesto', 'El player se activará cuando reciba el manifiesto del backend');
+    }
 
   } catch (error) {
     console.error('[main] Boot failed:', error);

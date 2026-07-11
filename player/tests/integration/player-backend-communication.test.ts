@@ -5,8 +5,6 @@ import { HeartbeatService } from '../../src/sync/HeartbeatService';
 import type { DeviceStatusProvider, CommandHandler, DeviceCommand } from '../../src/sync/HeartbeatService';
 import { PlaybackLogger } from '../../src/sync/PlaybackLogger';
 import type { PlaybackLogSyncClient } from '../../src/sync/PlaybackLogger';
-import { PlaylistSyncManager } from '../../src/sync/PlaylistSyncManager';
-import type { MediaDownloader, PlaylistManifest } from '../../src/sync/PlaylistSyncManager';
 import type { TokenStore } from '../../src/api/BackendApi';
 import Database from 'better-sqlite3';
 
@@ -52,13 +50,6 @@ function createMockStatusProvider(): DeviceStatusProvider {
     getStorageStatus: () => ({ total_mb: 32000, available_mb: 15000, percent_used: 53 }),
     getUptimeSeconds: () => 7200,
     getPlaylistVersion: () => 'v2.0.0',
-  };
-}
-
-function createMockDownloader(): MediaDownloader {
-  return {
-    download: vi.fn(async (_url: string, itemId: string) => `/media/${itemId}.mp4`),
-    computeChecksum: vi.fn(async () => 'abc123checksum'),
   };
 }
 
@@ -195,7 +186,7 @@ describe('Player ↔ Backend Communication Integration', () => {
   // ─── Full Communication Lifecycle ──────────────────────────────────────────
 
   describe('Full communication lifecycle (Req 1.2, 8.1, 9.2, 18.2)', () => {
-    it('should complete auth → config sync → heartbeat → playlist sync → playback logs', async () => {
+    it('should complete auth → config sync → heartbeat → playback logs', async () => {
       // 1. Setup mock routes for the entire flow
       server.addRoute('POST', '/api/device/auth', (body) => {
         const b = body as { device_token: string; venue_id: string };
@@ -238,23 +229,6 @@ describe('Player ↔ Backend Communication Integration', () => {
         data: { ack: true, pending_commands: [] },
       }));
 
-      server.addRoute('GET', '/api/device/playlist', () => ({
-        status: 200,
-        data: {
-          version: 'v2.0.0',
-          etag: 'etag-v2',
-          items: [
-            { id: 'item-1', type: 'image', url: 'https://cdn.example.com/img1.jpg', duration: 10, checksum: 'abc123checksum' },
-            { id: 'item-2', type: 'video', url: 'https://cdn.example.com/vid1.mp4', duration: 15, checksum: 'abc123checksum' },
-          ],
-        },
-      }));
-
-      server.addRoute('POST', '/api/device/playlist/confirm', () => ({
-        status: 200,
-        data: { ack: true },
-      }));
-
       server.addRoute('POST', '/api/device/playback-logs', (body) => {
         const b = body as { logs: Array<{ id: string }> };
         return {
@@ -279,7 +253,6 @@ describe('Player ↔ Backend Communication Integration', () => {
       expect(configResponse.ok).toBe(true);
       expect(configResponse.status).toBe(200);
       expect((configResponse.data as any).venue_id).toBe('venue-001');
-      expect((configResponse.data as any).loop.slots).toHaveLength(4);
 
       // 4. HEARTBEAT: Send heartbeat with device status
       const statusProvider = createMockStatusProvider();
@@ -287,21 +260,9 @@ describe('Player ↔ Backend Communication Integration', () => {
       const heartbeatResult = await heartbeatService.sendHeartbeat();
       expect(heartbeatResult).toEqual([]);
 
-      // 5. PLAYLIST SYNC: Sync playlist from backend
-      const downloader = createMockDownloader();
-      const syncManager = new PlaylistSyncManager(client, db, downloader);
-      const syncResult = await syncManager.sync();
-      expect(syncResult).toBe(true);
-
-      // Verify playlist was stored locally
-      const items = syncManager.getPlaylistItems();
-      expect(items).toHaveLength(2);
-      expect(items[0]!.id).toBe('item-1');
-      expect(items[1]!.id).toBe('item-2');
-
-      // 6. PLAYBACK LOGS: Record events and batch sync
+      // 5. PLAYBACK LOGS: Record events and batch sync
       const logger = new PlaybackLogger(db, client as PlaybackLogSyncClient);
-      const logId1 = logger.record({
+      logger.record({
         contentId: 'item-1',
         source: 'playlist',
         startedAt: new Date('2024-06-15T10:00:00Z'),
@@ -309,7 +270,7 @@ describe('Player ↔ Backend Communication Integration', () => {
         durationSeconds: 10,
         result: 'success',
       });
-      const logId2 = logger.record({
+      logger.record({
         contentId: 'item-2',
         source: 'playlist',
         startedAt: new Date('2024-06-15T10:00:10Z'),
@@ -324,19 +285,15 @@ describe('Player ↔ Backend Communication Integration', () => {
       expect(syncedCount).toBe(2);
       expect(logger.getUnsyncedCount()).toBe(0);
 
-      // 7. Verify the full call sequence
+      // 6. Verify the full call sequence
       const authCalls = server.callLog.filter(c => c.path === '/api/device/auth');
       const configCalls = server.callLog.filter(c => c.path === '/api/device/config');
       const heartbeatCalls = server.callLog.filter(c => c.path === '/api/device/heartbeat');
-      const playlistCalls = server.callLog.filter(c => c.path === '/api/device/playlist');
-      const confirmCalls = server.callLog.filter(c => c.path === '/api/device/playlist/confirm');
       const logCalls = server.callLog.filter(c => c.path === '/api/device/playback-logs');
 
       expect(authCalls).toHaveLength(1);
       expect(configCalls).toHaveLength(1);
       expect(heartbeatCalls).toHaveLength(1);
-      expect(playlistCalls).toHaveLength(1);
-      expect(confirmCalls).toHaveLength(1);
       expect(logCalls).toHaveLength(1);
     });
 
@@ -512,109 +469,6 @@ describe('Player ↔ Backend Communication Integration', () => {
     });
   });
 
-  // ─── Playlist Sync Tests (Req 9.2) ─────────────────────────────────────────
-
-  describe('Playlist sync (Req 9.2)', () => {
-    it('should adopt new playlist and confirm to backend', async () => {
-      let confirmPayload: any = null;
-      server.addRoute('GET', '/api/device/playlist', () => ({
-        status: 200,
-        data: {
-          version: 'v3.0.0',
-          etag: 'etag-v3',
-          items: [
-            { id: 'new-item-1', type: 'image', url: 'https://cdn.example.com/new1.jpg', duration: 10, checksum: 'abc123checksum' },
-          ],
-        },
-      }));
-      server.addRoute('POST', '/api/device/playlist/confirm', (body) => {
-        confirmPayload = body;
-        return { status: 200, data: { ack: true } };
-      });
-
-      const client = new BackendApiClient('http://localhost:8000');
-      client.setToken(jwt);
-      const downloader = createMockDownloader();
-      const syncManager = new PlaylistSyncManager(client, db, downloader);
-
-      const result = await syncManager.sync();
-
-      expect(result).toBe(true);
-      expect(confirmPayload).toEqual({ version: 'v3.0.0', status: 'adopted' });
-      expect(syncManager.getPlaylistVersion()).toBe('v3.0.0');
-    });
-
-    it('should not update playlist when backend returns 304 (no changes)', async () => {
-      // First sync to establish a version
-      server.addRoute('GET', '/api/device/playlist', () => ({
-        status: 200,
-        data: {
-          version: 'v1.0.0',
-          etag: 'etag-v1',
-          items: [{ id: 'item-a', type: 'image', url: 'https://cdn.example.com/a.jpg', duration: 10, checksum: 'abc123checksum' }],
-        },
-      }));
-      server.addRoute('POST', '/api/device/playlist/confirm', () => ({
-        status: 200,
-        data: { ack: true },
-      }));
-
-      const client = new BackendApiClient('http://localhost:8000');
-      client.setToken(jwt);
-      const downloader = createMockDownloader();
-      const syncManager = new PlaylistSyncManager(client, db, downloader);
-
-      await syncManager.sync(); // first sync
-
-      // Change route to return 304
-      server.addRoute('GET', '/api/device/playlist', (_body, headers) => {
-        if (headers?.['if-none-match'] === 'etag-v1') {
-          return { status: 304, data: null };
-        }
-        return { status: 200, data: { version: 'v1.0.0', etag: 'etag-v1', items: [] } };
-      });
-
-      const result = await syncManager.sync();
-      expect(result).toBe(false); // No update
-      expect(syncManager.getPlaylistVersion()).toBe('v1.0.0'); // Still same version
-    });
-
-    it('should revert playlist when confirmation fails (Req 9.3)', async () => {
-      // Seed initial playlist
-      db.prepare('INSERT INTO playlist (id, version, synced_at) VALUES (?, ?, ?)').run('v1', 'v1.0.0', new Date().toISOString());
-      db.prepare('INSERT INTO playlist_items (id, playlist_id, type, media_path, url, duration_seconds, position, rotation, refresh_interval, checksum, download_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-        'old-item', 'v1', 'image', '/media/old.jpg', null, 10, 0, 0, null, null, 'ready'
-      );
-
-      server.addRoute('GET', '/api/device/playlist', () => ({
-        status: 200,
-        data: {
-          version: 'v2.0.0',
-          etag: 'etag-v2',
-          items: [{ id: 'new-item', type: 'image', url: 'https://cdn.example.com/new.jpg', duration: 10, checksum: 'abc123checksum' }],
-        },
-      }));
-      // Confirmation fails
-      server.addRoute('POST', '/api/device/playlist/confirm', () => ({
-        status: 500,
-        data: { error: 'Internal Server Error' },
-      }));
-
-      const client = new BackendApiClient('http://localhost:8000');
-      client.setToken(jwt);
-      const downloader = createMockDownloader();
-      const syncManager = new PlaylistSyncManager(client, db, downloader);
-
-      const result = await syncManager.sync();
-
-      expect(result).toBe(false);
-      // Should have reverted to the old playlist
-      const items = syncManager.getPlaylistItems();
-      expect(items).toHaveLength(1);
-      expect(items[0]!.id).toBe('old-item');
-    });
-  });
-
   // ─── Playback Log Batch Tests (Req 18.2) ───────────────────────────────────
 
   describe('Playback log batch sync (Req 18.2)', () => {
@@ -754,30 +608,6 @@ describe('Player ↔ Backend Communication Integration', () => {
       expect(heartbeatCount).toBe(1); // Successfully delivered
 
       service.stop();
-    });
-
-    it('should keep playlist unchanged when sync fails due to network error', async () => {
-      // Seed initial playlist
-      db.prepare('INSERT INTO playlist (id, version, synced_at) VALUES (?, ?, ?)').run('v1', 'v1.0.0', new Date().toISOString());
-      db.prepare('INSERT INTO playlist_items (id, playlist_id, type, media_path, url, duration_seconds, position, rotation, refresh_interval, checksum, download_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-        'existing-item', 'v1', 'image', '/media/existing.jpg', null, 10, 0, 0, null, null, 'ready'
-      );
-
-      const client = new BackendApiClient('http://localhost:8000');
-      client.setToken(jwt);
-      const downloader = createMockDownloader();
-      const syncManager = new PlaylistSyncManager(client, db, downloader);
-
-      // Go offline
-      server.setOnline(false);
-
-      const result = await syncManager.sync();
-      expect(result).toBe(false);
-
-      // Playlist unchanged
-      const items = syncManager.getPlaylistItems();
-      expect(items).toHaveLength(1);
-      expect(items[0]!.id).toBe('existing-item');
     });
 
     it('should accumulate multiple sync batches offline and deliver all when reconnected', async () => {

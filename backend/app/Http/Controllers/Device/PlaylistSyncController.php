@@ -96,7 +96,7 @@ class PlaylistSyncController extends Controller
         $error = $request->input('error');
 
         if ($status === 'adopted') {
-            $screen->update(['playlist_version' => $version]);
+            $screen->update(['manifest_version' => $version]);
             Log::info('Playlist adopted', [
                 'screen_id' => $screenId,
                 'version' => $version,

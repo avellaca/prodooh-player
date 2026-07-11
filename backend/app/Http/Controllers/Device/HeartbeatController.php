@@ -49,7 +49,7 @@ class HeartbeatController extends Controller
             'last_heartbeat' => Carbon::now(),
             'status' => 'online',
             'last_storage_status' => $request->input('storage'),
-            'playlist_version' => $request->input('playlist_version'),
+            'manifest_version' => $request->input('playlist_version'),
         ]);
 
         // Fetch pending commands and mark them as delivered

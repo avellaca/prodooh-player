@@ -35,7 +35,7 @@ class ScreenFactory extends Factory
             'schedule' => null,
             'transition_type' => null,
             'transition_duration_ms' => null,
-            'playlist_version' => '',
+            'manifest_version' => '',
             'last_heartbeat' => null,
             'last_storage_status' => null,
         ];
