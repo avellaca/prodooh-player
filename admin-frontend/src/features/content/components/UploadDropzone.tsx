@@ -7,9 +7,11 @@ import { cn } from "@/lib/utils";
 
 interface UploadDropzoneProps {
   onUploadSuccess: () => void;
+  disabled?: boolean;
+  disabledTooltip?: string;
 }
 
-export function UploadDropzone({ onUploadSuccess }: UploadDropzoneProps) {
+export function UploadDropzone({ onUploadSuccess, disabled = false, disabledTooltip }: UploadDropzoneProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadCount, setUploadCount] = useState({ current: 0, total: 0 });
@@ -64,6 +66,7 @@ export function UploadDropzone({ onUploadSuccess }: UploadDropzoneProps) {
   function handleDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
     setIsDragOver(false);
+    if (disabled) return;
     const files = Array.from(e.dataTransfer.files);
     handleFiles(files);
   }
@@ -74,13 +77,16 @@ export function UploadDropzone({ onUploadSuccess }: UploadDropzoneProps) {
     e.target.value = "";
   }
 
+  const isDisabled = disabled || uploadContent.isPending;
+
   return (
     <div
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
+      onDragOver={!disabled ? handleDragOver : undefined}
+      onDragLeave={!disabled ? handleDragLeave : undefined}
       onDrop={handleDrop}
       className={cn(
         "relative flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-6 transition-colors",
+        disabled && "opacity-60 cursor-not-allowed",
         isDragOver
           ? "border-primary bg-primary/5"
           : "border-muted-foreground/25 hover:border-muted-foreground/50",
@@ -88,12 +94,15 @@ export function UploadDropzone({ onUploadSuccess }: UploadDropzoneProps) {
     >
       <Upload className="h-8 w-8 text-muted-foreground" />
       <p className="text-sm text-muted-foreground">
-        Arrastra archivos aquí o haz clic para seleccionar
+        {disabled && disabledTooltip
+          ? disabledTooltip
+          : "Arrastra archivos aquí o haz clic para seleccionar"}
       </p>
       <Button
         variant="secondary"
         size="sm"
-        disabled={uploadContent.isPending}
+        disabled={isDisabled}
+        title={disabled ? disabledTooltip : undefined}
         onClick={() => document.getElementById("file-upload-input")?.click()}
       >
         Seleccionar archivos
@@ -102,7 +111,7 @@ export function UploadDropzone({ onUploadSuccess }: UploadDropzoneProps) {
         id="file-upload-input"
         type="file"
         className="hidden"
-        accept="image/*,video/*"
+        accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime"
         multiple
         onChange={handleFileSelect}
       />

@@ -85,33 +85,33 @@ class IntegrationEndToEndTest extends TestCase
             'share_weight' => 3,
         ]);
 
-        // Create creatives for each line
+        // Create targets pointing to the screen
+        $target1 = OrderLineTarget::create([
+            'order_line_id' => $line1->id,
+            'screen_id' => $screen->id,
+            'screen_group_id' => null,
+        ]);
+        $target2 = OrderLineTarget::create([
+            'order_line_id' => $line2->id,
+            'screen_id' => $screen->id,
+            'screen_group_id' => null,
+        ]);
+
+        // Create creatives for each line, linked to their targets
         $content1 = Content::factory()->create(['tenant_id' => $tenant->id]);
         $creative1 = Creative::factory()->create([
+            'order_line_target_id' => $target1->id,
             'order_line_id' => $line1->id,
             'content_id' => $content1->id,
             'weight' => 1,
-            'active_dates' => [now()->toDateString()],
         ]);
 
         $content2 = Content::factory()->create(['tenant_id' => $tenant->id]);
         $creative2 = Creative::factory()->create([
+            'order_line_target_id' => $target2->id,
             'order_line_id' => $line2->id,
             'content_id' => $content2->id,
             'weight' => 1,
-            'active_dates' => [now()->toDateString()],
-        ]);
-
-        // Create targets pointing to the screen
-        OrderLineTarget::create([
-            'order_line_id' => $line1->id,
-            'screen_id' => $screen->id,
-            'screen_group_id' => null,
-        ]);
-        OrderLineTarget::create([
-            'order_line_id' => $line2->id,
-            'screen_id' => $screen->id,
-            'screen_group_id' => null,
         ]);
 
         // Act: Run RecalculateManifestJob synchronously
@@ -250,17 +250,18 @@ class IntegrationEndToEndTest extends TestCase
         ]);
 
         $content = Content::factory()->create(['tenant_id' => $tenant->id]);
-        $creative = Creative::factory()->create([
-            'order_line_id' => $line->id,
-            'content_id' => $content->id,
-            'weight' => 1,
-            'active_dates' => [now()->toDateString()],
-        ]);
 
-        OrderLineTarget::create([
+        $target = OrderLineTarget::create([
             'order_line_id' => $line->id,
             'screen_id' => $screen->id,
             'screen_group_id' => null,
+        ]);
+
+        $creative = Creative::factory()->create([
+            'order_line_target_id' => $target->id,
+            'order_line_id' => $line->id,
+            'content_id' => $content->id,
+            'weight' => 1,
         ]);
 
         // Act 1: Calculate initial daily_budget (no impressions yet)
@@ -344,18 +345,19 @@ class IntegrationEndToEndTest extends TestCase
         ]);
 
         $content = Content::factory()->create(['tenant_id' => $tenant->id]);
-        Creative::factory()->create([
-            'order_line_id' => $line->id,
-            'content_id' => $content->id,
-            'weight' => 1,
-            'active_dates' => [now()->toDateString()],
-        ]);
 
         // Target the group (all screens in it)
-        OrderLineTarget::create([
+        $target = OrderLineTarget::create([
             'order_line_id' => $line->id,
             'screen_id' => null,
             'screen_group_id' => $group->id,
+        ]);
+
+        Creative::factory()->create([
+            'order_line_target_id' => $target->id,
+            'order_line_id' => $line->id,
+            'content_id' => $content->id,
+            'weight' => 1,
         ]);
 
         // Act: Dispatch MidnightRolloverCommand with sync queue

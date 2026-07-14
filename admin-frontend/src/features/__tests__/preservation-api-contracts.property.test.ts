@@ -4,9 +4,8 @@
  * These tests encode the CURRENT working behavior of the unfixed code.
  * They must PASS now (baseline) and STILL PASS after fixes are applied (no regressions).
  *
- * **Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9**
+ * **Validates: Requirements 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8**
  *
- * Requirement 3.1: screensApi unwraps { data: ... } envelope and transforms loop_config/sources_config
  * Requirement 3.2: playlistsApi unwraps { data: ... } envelope correctly
  * Requirement 3.3: contentApi unwraps { data: ... } envelope correctly
  * Requirement 3.4: Admin login returns { token, user } and token is stored in localStorage
@@ -14,7 +13,6 @@
  * Requirement 3.6: Tenants list returns paginated data and frontend extracts items correctly
  * Requirement 3.7: tenant_admin creates resources without needing explicit tenant_id
  * Requirement 3.8: super_admin screen creation with per-form tenant selector continues to work
- * Requirement 3.9: PUT /screens/{id}/loop with { slots: [...] } works correctly
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -31,40 +29,6 @@ import { TOKEN_KEY } from '@/lib/axios';
 const BASE_URL = 'http://localhost:8000/api';
 
 // --- Generators ---
-
-/** Generate a valid LoopSlot as the backend would return it */
-const loopSlotArb = fc.record({
-  position: fc.integer({ min: 0, max: 20 }),
-  source: fc.constantFrom('prodooh', 'gam', 'url', 'playlist') as fc.Arbitrary<'prodooh' | 'gam' | 'url' | 'playlist'>,
-  duration: fc.integer({ min: 5, max: 120 }),
-});
-
-/** Generate sources_config as the backend returns it (nested object format) */
-const backendSourcesConfigArb = fc.record({
-  prodooh: fc.record({ enabled: fc.boolean() }),
-  gam: fc.record({ enabled: fc.boolean() }),
-  url: fc.record({ enabled: fc.boolean() }),
-  playlist: fc.record({ enabled: fc.boolean() }),
-});
-
-/** Generate a screen object as the backend returns it (with envelope) */
-const backendScreenArb = fc.record({
-  id: fc.uuid(),
-  tenant_id: fc.uuid(),
-  group_id: fc.option(fc.uuid(), { nil: null }),
-  venue_id: fc.string({ minLength: 3, maxLength: 20 }),
-  name: fc.string({ minLength: 1, maxLength: 50 }),
-  status: fc.constantFrom('active', 'inactive', 'offline'),
-  orientation: fc.constantFrom('landscape', 'portrait') as fc.Arbitrary<'landscape' | 'portrait'>,
-  resolution_width: fc.integer({ min: 320, max: 3840 }),
-  resolution_height: fc.integer({ min: 240, max: 2160 }),
-  duration_seconds: fc.integer({ min: 5, max: 300 }),
-  loop_config: fc.record({ slots: fc.array(loopSlotArb, { minLength: 1, maxLength: 5 }) }),
-  sources_config: backendSourcesConfigArb,
-  last_heartbeat: fc.option(fc.date().map(d => d.toISOString()), { nil: null }),
-  created_at: fc.date().map(d => d.toISOString()),
-  updated_at: fc.date().map(d => d.toISOString()),
-});
 
 /** Generate a playlist object as the backend returns it */
 const backendPlaylistArb = fc.record({
@@ -97,87 +61,6 @@ describe('Property 2: Preservation — Existing API Contracts Unchanged', () => 
   beforeEach(() => {
     localStorage.clear();
     localStorage.setItem(TOKEN_KEY, 'test-token');
-  });
-
-  // =========================================================================
-  // Requirement 3.1: Screens API envelope unwrapping + field transformations
-  // =========================================================================
-
-  describe('Requirement 3.1: screensApi envelope unwrapping and field transforms', () => {
-    /**
-     * screensApi.list() unwraps the { data: [...] } envelope and transforms
-     * loop_config from { slots: [...] } to LoopSlot[] and sources_config from
-     * nested { source: { enabled: bool } } to flat { source: bool }.
-     */
-    it('screensApi.list() unwraps { data: [...] } envelope and transforms loop_config/sources_config', async () => {
-      await fc.assert(
-        fc.asyncProperty(
-          fc.array(backendScreenArb, { minLength: 1, maxLength: 5 }),
-          async (screens) => {
-            server.use(
-              http.get(`${BASE_URL}/admin/screens`, () => {
-                return HttpResponse.json({ data: screens });
-              })
-            );
-
-            const result = await screensApi.list();
-
-            // PROPERTY: Result is an array with same length as backend data
-            expect(Array.isArray(result)).toBe(true);
-            expect(result.length).toBe(screens.length);
-
-            for (let i = 0; i < result.length; i++) {
-              const screen = result[i];
-              const original = screens[i];
-
-              // PROPERTY: loop_config is unwrapped from { slots: [...] } to LoopSlot[]
-              expect(Array.isArray(screen.loop_config)).toBe(true);
-              expect(screen.loop_config).toEqual(original.loop_config.slots);
-
-              // PROPERTY: sources_config is transformed from { source: { enabled: bool } } to { source: bool }
-              expect(typeof screen.sources_config.prodooh).toBe('boolean');
-              expect(typeof screen.sources_config.gam).toBe('boolean');
-              expect(typeof screen.sources_config.url).toBe('boolean');
-              expect(typeof screen.sources_config.playlist).toBe('boolean');
-              expect(screen.sources_config.prodooh).toBe(original.sources_config.prodooh.enabled);
-              expect(screen.sources_config.gam).toBe(original.sources_config.gam.enabled);
-              expect(screen.sources_config.url).toBe(original.sources_config.url.enabled);
-              expect(screen.sources_config.playlist).toBe(original.sources_config.playlist.enabled);
-
-              // PROPERTY: Other fields are passed through unchanged
-              expect(screen.id).toBe(original.id);
-              expect(screen.name).toBe(original.name);
-              expect(screen.tenant_id).toBe(original.tenant_id);
-            }
-          }
-        ),
-        { numRuns: 20 }
-      );
-    });
-
-    it('screensApi.get() unwraps single screen from { data: ... } envelope', async () => {
-      await fc.assert(
-        fc.asyncProperty(
-          backendScreenArb,
-          async (backendScreen) => {
-            server.use(
-              http.get(`${BASE_URL}/admin/screens/:id`, () => {
-                return HttpResponse.json({ data: backendScreen });
-              })
-            );
-
-            const result = await screensApi.get(backendScreen.id);
-
-            // PROPERTY: Single screen unwrapped and transformed
-            expect(result.id).toBe(backendScreen.id);
-            expect(Array.isArray(result.loop_config)).toBe(true);
-            expect(result.loop_config).toEqual(backendScreen.loop_config.slots);
-            expect(typeof result.sources_config.prodooh).toBe('boolean');
-          }
-        ),
-        { numRuns: 15 }
-      );
-    });
   });
 
   // =========================================================================
@@ -436,9 +319,6 @@ describe('Property 2: Preservation — Existing API Contracts Unchanged', () => 
               id: 'new-screen-id',
               group_id: null,
               status: 'active',
-              duration_seconds: 30,
-              loop_config: { slots: [{ position: 0, source: 'prodooh', duration: 10 }] },
-              sources_config: { prodooh: { enabled: true }, gam: { enabled: false }, url: { enabled: false }, playlist: { enabled: false } },
               last_heartbeat: null,
               created_at: '2024-01-01T00:00:00Z',
               updated_at: '2024-01-01T00:00:00Z',
@@ -461,50 +341,6 @@ describe('Property 2: Preservation — Existing API Contracts Unchanged', () => 
           }
         ),
         { numRuns: 10 }
-      );
-    });
-  });
-
-  // =========================================================================
-  // Requirement 3.9: PUT /screens/{id}/loop with { slots: [...] } works
-  // =========================================================================
-
-  describe('Requirement 3.9: loop config endpoint sends { slots: [...] }', () => {
-    /**
-     * screensApi.updateLoop sends { slots: [...] } which already matches the backend format.
-     */
-    it('screensApi.updateLoop() sends { slots: [...] } payload correctly', async () => {
-      await fc.assert(
-        fc.asyncProperty(
-          fc.uuid(),
-          fc.array(loopSlotArb, { minLength: 1, maxLength: 10 }),
-          async (screenId, slots) => {
-            let capturedBody: Record<string, unknown> | null = null;
-
-            server.use(
-              http.put(`${BASE_URL}/admin/screens/:id/loop`, async ({ request }) => {
-                capturedBody = await request.json() as Record<string, unknown>;
-                return HttpResponse.json({ data: { id: screenId, loop_config: { slots } } });
-              })
-            );
-
-            await screensApi.updateLoop(screenId, slots);
-
-            // PROPERTY: Request body has { slots: [...] } format
-            expect(capturedBody).not.toBeNull();
-            expect(capturedBody).toHaveProperty('slots');
-            expect(Array.isArray(capturedBody!.slots)).toBe(true);
-            const sentSlots = capturedBody!.slots as Array<{ position: number; source: string; duration: number }>;
-            expect(sentSlots.length).toBe(slots.length);
-
-            for (let i = 0; i < slots.length; i++) {
-              expect(sentSlots[i].position).toBe(slots[i].position);
-              expect(sentSlots[i].source).toBe(slots[i].source);
-              expect(sentSlots[i].duration).toBe(slots[i].duration);
-            }
-          }
-        ),
-        { numRuns: 15 }
       );
     });
   });

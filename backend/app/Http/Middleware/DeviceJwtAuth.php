@@ -62,16 +62,22 @@ class DeviceJwtAuth
     }
 
     /**
-     * Extract the Bearer token from the Authorization header.
+     * Extract the Bearer token from the Authorization header or query param.
      */
     private function extractToken(Request $request): ?string
     {
+        // Try Authorization header first
         $header = $request->header('Authorization');
-
-        if (!$header || !str_starts_with($header, 'Bearer ')) {
-            return null;
+        if ($header && str_starts_with($header, 'Bearer ')) {
+            return substr($header, 7);
         }
 
-        return substr($header, 7);
+        // Fallback: query param (for <img>/<video> tags that can't send headers)
+        $queryToken = $request->query('token');
+        if ($queryToken) {
+            return $queryToken;
+        }
+
+        return null;
     }
 }

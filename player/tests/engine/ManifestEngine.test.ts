@@ -262,4 +262,171 @@ describe('ManifestEngine', () => {
       }
     });
   });
+
+  describe('preview_content playback (Req 21.4, 21.5)', () => {
+    it('plays preview item after current item finishes, then resumes manifest from same position', async () => {
+      const item0 = createOrderLineCreativeItem(0);
+      const item1 = createOrderLineCreativeItem(1);
+      const item2 = createOrderLineCreativeItem(2);
+      const manifest = createManifest([item0, item1, item2]);
+
+      const playedItems: ManifestItem[] = [];
+      const onItemComplete = vi.fn();
+      let playCount = 0;
+
+      const engine = new ManifestEngine({
+        manifest,
+        onItemComplete,
+        playbackFn: async (item) => {
+          playedItems.push(item);
+          playCount++;
+
+          // After playing item at position 0, queue a preview
+          if (playCount === 1) {
+            engine.queuePreview({
+              content_id: 'preview-1',
+              asset_url: '/api/device/content/preview-1/file',
+              local_url: 'blob:preview-local',
+              duration_seconds: 5,
+            });
+          }
+
+          // Stop after playing: item0, preview, item1
+          if (playCount >= 3) engine.stop();
+          return 'success';
+        },
+      });
+
+      await engine.run();
+
+      expect(playedItems.length).toBe(3);
+
+      // First item: normal manifest item at position 0
+      expect(playedItems[0]!.position).toBe(0);
+      expect(playedItems[0]!.type).toBe('order_line_creative');
+
+      // Second item: the preview (position -1, playlist_item type)
+      expect(playedItems[1]!.position).toBe(-1);
+      expect(playedItems[1]!.asset_url).toBe('blob:preview-local');
+      expect(playedItems[1]!.duration_seconds).toBe(5);
+
+      // Third item: resumes manifest from position 1 (not 0 again)
+      expect(playedItems[2]!.position).toBe(1);
+      expect(playedItems[2]!.type).toBe('order_line_creative');
+    });
+
+    it('does NOT emit onItemComplete for preview playback (no impression)', async () => {
+      const item0 = createOrderLineCreativeItem(0);
+      const manifest = createManifest([item0]);
+
+      const onItemComplete = vi.fn();
+      let playCount = 0;
+
+      const engine = new ManifestEngine({
+        manifest,
+        onItemComplete,
+        playbackFn: async () => {
+          playCount++;
+
+          // Queue preview after first item
+          if (playCount === 1) {
+            engine.queuePreview({
+              content_id: 'preview-1',
+              asset_url: '/preview',
+              local_url: 'blob:preview',
+              duration_seconds: 5,
+            });
+          }
+
+          // Stop after preview is played
+          if (playCount >= 2) engine.stop();
+          return 'success';
+        },
+      });
+
+      await engine.run();
+
+      // onItemComplete should only be called once (for the order_line_creative item)
+      // NOT for the preview
+      expect(onItemComplete).toHaveBeenCalledTimes(1);
+      expect(onItemComplete).toHaveBeenCalledWith(item0, 'success');
+    });
+
+    it('plays preview only ONCE even if no other items are queued', async () => {
+      const item0 = createOrderLineCreativeItem(0);
+      const item1 = createOrderLineCreativeItem(1);
+      const manifest = createManifest([item0, item1]);
+
+      const playedItems: ManifestItem[] = [];
+      let playCount = 0;
+
+      const engine = new ManifestEngine({
+        manifest,
+        playbackFn: async (item) => {
+          playedItems.push(item);
+          playCount++;
+
+          // Queue preview after first play
+          if (playCount === 1) {
+            engine.queuePreview({
+              content_id: 'preview-1',
+              asset_url: '/preview',
+              local_url: 'blob:preview',
+              duration_seconds: 5,
+            });
+          }
+
+          // Stop after 4 plays: item0, preview, item1, item0
+          if (playCount >= 4) engine.stop();
+          return 'success';
+        },
+      });
+
+      await engine.run();
+
+      // Preview should appear exactly once (at position 1 in the sequence)
+      const previewPlays = playedItems.filter(i => i.position === -1);
+      expect(previewPlays.length).toBe(1);
+
+      // After preview, manifest continues from where it left off (position 1)
+      expect(playedItems[2]!.position).toBe(1);
+      // Then wraps around to position 0
+      expect(playedItems[3]!.position).toBe(0);
+    });
+
+    it('emits onItemStart for preview items (so renderer can display them)', async () => {
+      const item0 = createOrderLineCreativeItem(0);
+      const manifest = createManifest([item0]);
+
+      const onItemStart = vi.fn();
+      let playCount = 0;
+
+      const engine = new ManifestEngine({
+        manifest,
+        onItemStart,
+        playbackFn: async () => {
+          playCount++;
+          if (playCount === 1) {
+            engine.queuePreview({
+              content_id: 'p1',
+              asset_url: '/p',
+              local_url: 'blob:p',
+              duration_seconds: 5,
+            });
+          }
+          if (playCount >= 2) engine.stop();
+          return 'success';
+        },
+      });
+
+      await engine.run();
+
+      // onItemStart called for both the manifest item and the preview
+      expect(onItemStart).toHaveBeenCalledTimes(2);
+      // Second call should be the preview item
+      const previewCall = onItemStart.mock.calls[1]![0] as ManifestItem;
+      expect(previewCall.position).toBe(-1);
+      expect(previewCall.asset_url).toBe('blob:p');
+    });
+  });
 });

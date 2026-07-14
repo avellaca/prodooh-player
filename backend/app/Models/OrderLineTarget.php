@@ -3,11 +3,12 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class OrderLineTarget extends Model
 {
-    use HasUuids;
+    use HasFactory, HasUuids;
 
     /**
      * Indicates that the model's ID is not auto-incrementing.
@@ -83,5 +84,13 @@ class OrderLineTarget extends Model
     public function screenGroup()
     {
         return $this->belongsTo(ScreenGroup::class);
+    }
+
+    /**
+     * Get the creatives assigned to this target.
+     */
+    public function creatives()
+    {
+        return $this->hasMany(Creative::class);
     }
 }

@@ -10,6 +10,7 @@ import {
 } from "../hooks";
 import { GroupForm } from "../components/GroupForm";
 import { AssignScreensDialog } from "../components/AssignScreensDialog";
+import { GroupScheduleEditor } from "../components/GroupScheduleEditor";
 
 import { LoadingState } from "@/components/shared/LoadingState";
 import { ErrorState } from "@/components/shared/ErrorState";
@@ -123,24 +124,6 @@ export default function GroupDetailPage() {
                   : "—"}
               </dd>
             </div>
-            <div>
-              <dt className="text-sm font-medium text-muted-foreground">
-                Orientación
-              </dt>
-              <dd className="text-sm capitalize">
-                {group.orientation ?? "—"}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-sm font-medium text-muted-foreground">
-                Resolución
-              </dt>
-              <dd className="text-sm">
-                {group.resolution_width && group.resolution_height
-                  ? `${group.resolution_width}×${group.resolution_height}`
-                  : "—"}
-              </dd>
-            </div>
           </dl>
         </CardContent>
       </Card>
@@ -179,6 +162,13 @@ export default function GroupDetailPage() {
         </CardContent>
       </Card>
 
+      {/* Group Schedule Editor */}
+      <GroupScheduleEditor
+        groupId={id!}
+        schedule={group.schedule}
+        screens={group.screens ?? []}
+      />
+
       {/* Edit Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
         <DialogContent>
@@ -193,9 +183,6 @@ export default function GroupDetailPage() {
             defaultValues={{
               name: group.name,
               duration_seconds: group.duration_seconds ?? undefined,
-              orientation: group.orientation ?? undefined,
-              resolution_width: group.resolution_width ?? undefined,
-              resolution_height: group.resolution_height ?? undefined,
             }}
             onSubmit={handleUpdate}
             isSubmitting={updateGroup.isPending}

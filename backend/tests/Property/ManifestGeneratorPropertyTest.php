@@ -185,15 +185,22 @@ class ManifestGeneratorPropertyTest extends TestCase
                     'status' => 'active',
                 ]);
 
-                // Each order line has 1-3 creatives
+                // Create a target linking this line to the screen
+                $target = \App\Models\OrderLineTarget::factory()->create([
+                    'order_line_id' => $line->id,
+                    'screen_id' => $screen->id,
+                    'screen_group_id' => null,
+                ]);
+
+                // Each order line has 1-3 creatives linked to the target
                 $numCreatives = random_int(1, 3);
                 for ($c = 0; $c < $numCreatives; $c++) {
                     $content = Content::factory()->create(['tenant_id' => $tenant->id]);
                     Creative::factory()->create([
+                        'order_line_target_id' => $target->id,
                         'order_line_id' => $line->id,
                         'content_id' => $content->id,
                         'weight' => random_int(1, 10),
-                        'active_dates' => [now()->toDateString()],
                     ]);
                 }
 
@@ -241,7 +248,7 @@ class ManifestGeneratorPropertyTest extends TestCase
 
                 switch ($type) {
                     case 'order_line_creative':
-                        // MUST have: asset_url, checksum_sha256, order_line_id, creative_id
+                        // MUST have: asset_url, checksum_sha256, order_line_id, creative_id, target_id
                         $this->assertArrayHasKey('asset_url', $item,
                             "Property 16: order_line_creative [{$idx}] missing 'asset_url'. Iteration {$iter}.");
                         $this->assertArrayHasKey('checksum_sha256', $item,
@@ -250,6 +257,8 @@ class ManifestGeneratorPropertyTest extends TestCase
                             "Property 16: order_line_creative [{$idx}] missing 'order_line_id'. Iteration {$iter}.");
                         $this->assertArrayHasKey('creative_id', $item,
                             "Property 16: order_line_creative [{$idx}] missing 'creative_id'. Iteration {$iter}.");
+                        $this->assertArrayHasKey('target_id', $item,
+                            "Property 16: order_line_creative [{$idx}] missing 'target_id'. Iteration {$iter}.");
                         // MUST NOT have: playlist_item_id
                         $this->assertArrayNotHasKey('playlist_item_id', $item,
                             "Property 16: order_line_creative [{$idx}] must NOT have 'playlist_item_id'. Iteration {$iter}.");

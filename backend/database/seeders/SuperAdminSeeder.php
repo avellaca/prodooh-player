@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\User;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Hash;
 
 class SuperAdminSeeder extends Seeder
 {
@@ -16,7 +17,7 @@ class SuperAdminSeeder extends Seeder
             ['email' => 'admin@prodooh.com'],
             [
                 'tenant_id' => null,
-                'password_hash' => 'password',
+                'password_hash' => Hash::make('password'),
                 'role' => 'super_admin',
             ]
         );

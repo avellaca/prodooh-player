@@ -4,14 +4,13 @@
  * This test encodes the CORRECT expected behavior (what the backend expects).
  * It runs against the UNFIXED frontend code and should FAIL, proving the bugs exist.
  *
- * **Validates: Requirements 1.1, 1.2, 1.3, 1.7, 1.8, 1.10**
+ * **Validates: Requirements 1.1, 1.2, 1.3, 1.7, 1.8**
  *
  * Requirement 1.1: contentApi.rotate must send { rotation } (currently sends { angle } → 422)
  * Requirement 1.2: analyticsApi.getPlayback must use date_from/date_to params (currently sends start_date/end_date)
  * Requirement 1.3: Analytics response must be parsed as { total_spots, by_source, by_screen, by_content }
  * Requirement 1.7: super_admin playlist create must include tenant_id (currently omits → 422)
  * Requirement 1.8: super_admin group create must include tenant_id (currently omits → 422)
- * Requirement 1.10: screensApi.updateSources must send batch format { sources: { name: { enabled: bool } } }
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -20,7 +19,6 @@ import { http, HttpResponse } from 'msw';
 import { server } from '@/test/mocks/server';
 import { contentApi } from '@/features/content/api';
 import { analyticsApi } from '@/features/analytics/api';
-import { screensApi } from '@/features/screens/api';
 import { playlistsApi } from '@/features/playlists/api';
 import { groupsApi } from '@/features/groups/api';
 
@@ -186,57 +184,6 @@ describe('Property 1: Bug Condition — API Contract Mismatches', () => {
         }
       ),
       { numRuns: 20 }
-    );
-  });
-
-  /**
-   * Property 1.10: screensApi.updateSources sends batch format
-   *
-   * The backend's SourceToggleController expects:
-   *   { sources: { prodooh: { enabled: true }, gam: { enabled: false }, ... } }
-   *
-   * The frontend currently sends flat booleans:
-   *   { prodooh: true, gam: false, ... }
-   *
-   * This test asserts the correct batch format.
-   */
-  it('screensApi.updateSources sends batch format { sources: { name: { enabled: bool } } }', async () => {
-    await fc.assert(
-      fc.asyncProperty(
-        fc.record({
-          prodooh: fc.boolean(),
-          gam: fc.boolean(),
-          url: fc.boolean(),
-          playlist: fc.boolean(),
-        }),
-        async (sourcesConfig) => {
-          let capturedBody: Record<string, unknown> | null = null;
-
-          server.use(
-            http.put(`${BASE_URL}/admin/screens/:id/sources`, async ({ request }) => {
-              capturedBody = await request.json() as Record<string, unknown>;
-              return HttpResponse.json({ data: { id: 'screen-1', sources_config: sourcesConfig } });
-            })
-          );
-
-          await screensApi.updateSources('screen-1', sourcesConfig);
-
-          // PROPERTY: Must send { sources: { name: { enabled: bool } } } format
-          expect(capturedBody).not.toBeNull();
-          expect(capturedBody).toHaveProperty('sources');
-          expect(capturedBody).not.toHaveProperty('prodooh');
-          expect(capturedBody).not.toHaveProperty('gam');
-          expect(capturedBody).not.toHaveProperty('url');
-          expect(capturedBody).not.toHaveProperty('playlist');
-
-          const sources = capturedBody!.sources as Record<string, { enabled: boolean }>;
-          for (const [key, value] of Object.entries(sourcesConfig)) {
-            expect(sources[key]).toBeDefined();
-            expect(sources[key].enabled).toBe(value);
-          }
-        }
-      ),
-      { numRuns: 10 }
     );
   });
 

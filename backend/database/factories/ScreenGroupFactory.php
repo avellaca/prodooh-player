@@ -25,9 +25,6 @@ class ScreenGroupFactory extends Factory
             'name' => fake()->words(2, true) . ' Group',
             'duration_seconds' => fake()->randomElement([10, 15, 20, 30]),
             'schedule' => null,
-            'orientation' => fake()->randomElement(['landscape', 'portrait']),
-            'resolution_width' => 1920,
-            'resolution_height' => 1080,
         ];
     }
 }

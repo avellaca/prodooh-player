@@ -27,7 +27,7 @@ import { useTenants, useCreateTenant, useUpdateTenant, useDeleteTenant } from ".
 import type { Tenant } from "@/types/models";
 import type { CreateTenantInput } from "@/schemas/tenant.schema";
 
-export default function TenantsPage() {
+export default function NetworksPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
   const [deletingTenant, setDeletingTenant] = useState<Tenant | null>(null);
@@ -108,7 +108,7 @@ export default function TenantsPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <h1 className="text-2xl font-bold">Tenants</h1>
+        <h1 className="text-2xl font-bold">Networks</h1>
         <LoadingState />
       </div>
     );
@@ -117,7 +117,7 @@ export default function TenantsPage() {
   if (isError) {
     return (
       <div className="space-y-6">
-        <h1 className="text-2xl font-bold">Tenants</h1>
+        <h1 className="text-2xl font-bold">Networks</h1>
         <ErrorState onRetry={() => refetch()} />
       </div>
     );
@@ -126,10 +126,10 @@ export default function TenantsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Tenants</h1>
+        <h1 className="text-2xl font-bold">Networks</h1>
         <Button onClick={() => setCreateDialogOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
-          Crear tenant
+          Crear network
         </Button>
       </div>
 
@@ -139,9 +139,9 @@ export default function TenantsPage() {
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Crear tenant</DialogTitle>
+            <DialogTitle>Crear network</DialogTitle>
             <DialogDescription>
-              Ingresa el nombre del nuevo tenant.
+              Ingresa el nombre del nuevo network.
             </DialogDescription>
           </DialogHeader>
           <TenantForm
@@ -158,9 +158,9 @@ export default function TenantsPage() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Editar tenant</DialogTitle>
+            <DialogTitle>Editar network</DialogTitle>
             <DialogDescription>
-              Modifica el nombre del tenant.
+              Modifica el nombre del network.
             </DialogDescription>
           </DialogHeader>
           {editingTenant && (
@@ -178,7 +178,7 @@ export default function TenantsPage() {
       <ConfirmDialog
         open={deletingTenant !== null}
         onOpenChange={(open) => { if (!open) setDeletingTenant(null); }}
-        title="Eliminar tenant"
+        title="Eliminar network"
         description={`¿Estás seguro de que deseas eliminar "${deletingTenant?.name}"? Esta acción no se puede deshacer.`}
         onConfirm={handleDelete}
       />

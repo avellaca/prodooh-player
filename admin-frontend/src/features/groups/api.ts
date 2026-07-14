@@ -17,4 +17,7 @@ export const groupsApi = {
 
   assignScreens: (id: string, data: AssignScreensInput) =>
     api.post(`/admin/groups/${id}/screens`, data).then((r) => r.data),
+
+  applySchedule: (id: string) =>
+    api.post<{ message: string; screens_updated: number }>(`/admin/groups/${id}/apply-schedule`).then((r) => r.data),
 };

@@ -36,9 +36,6 @@ class ScreenGroup extends Model
         'name',
         'duration_seconds',
         'schedule',
-        'orientation',
-        'resolution_width',
-        'resolution_height',
     ];
 
     /**

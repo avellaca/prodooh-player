@@ -76,6 +76,12 @@ class PlaylistService
         // Increment version (new UUID)
         $playlist->update(['version' => (string) Str::uuid()]);
 
+        // Dispatch manifest recalculation for all screens using this playlist
+        $screenIds = $playlist->screens()->pluck('screens.id');
+        foreach ($screenIds as $screenId) {
+            \App\Jobs\RecalculateManifestJob::dispatch($screenId, true)->afterCommit();
+        }
+
         return $playlist->load(['playlistItems' => function ($query) {
             $query->orderBy('position');
         }]);
@@ -94,6 +100,11 @@ class PlaylistService
         }
 
         $playlist->screens()->sync($syncData);
+
+        // Dispatch manifest recalculation for all affected screens
+        foreach ($screenIds as $screenId) {
+            \App\Jobs\RecalculateManifestJob::dispatch($screenId, true)->afterCommit();
+        }
     }
 
     /**

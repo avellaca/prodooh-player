@@ -83,11 +83,17 @@ class OrderModelTest extends TestCase
         $this->assertNotNull($orderLine->id);
         $this->assertEquals($order->id, $orderLine->order_id);
 
+        $target = OrderLineTarget::create([
+            'order_line_id' => $orderLine->id,
+            'screen_id' => $this->screen->id,
+            'screen_group_id' => null,
+        ]);
+
         $creative = Creative::create([
+            'order_line_target_id' => $target->id,
             'order_line_id' => $orderLine->id,
             'content_id' => $this->content->id,
             'weight' => 80,
-            'active_dates' => ['2026-08-01', '2026-08-05', '2026-08-10'],
         ]);
 
         $this->assertNotNull($creative->id);
@@ -145,7 +151,6 @@ class OrderModelTest extends TestCase
             'order_line_id' => $orderLine->id,
             'content_id' => $this->content->id,
             'weight' => 100,
-            'active_dates' => ['2026-08-01', '2026-08-10'],
         ]);
 
         $target = OrderLineTarget::create([
@@ -191,7 +196,6 @@ class OrderModelTest extends TestCase
             'order_line_id' => $orderLine->id,
             'content_id' => $this->content->id,
             'weight' => 100,
-            'active_dates' => ['2026-08-01'],
         ]);
 
         $impression = Impression::create([
@@ -241,7 +245,6 @@ class OrderModelTest extends TestCase
             'order_line_id' => $orderLine->id,
             'content_id' => $this->content->id,
             'weight' => 100,
-            'active_dates' => ['2026-08-01'],
         ]);
 
         // Attempt to delete Content should fail with a DB constraint violation
@@ -294,67 +297,6 @@ class OrderModelTest extends TestCase
             'starts_at' => '2026-08-10',
             'ends_at' => '2026-09-05',
             'status' => 'draft',
-        ]);
-    }
-
-    // =========================================================================
-    // 15.6 — Date containment: Creative active_dates must be within OrderLine range
-    // =========================================================================
-
-    public function test_creative_active_dates_must_be_within_order_line_range(): void
-    {
-        $order = Order::create([
-            'tenant_id' => $this->tenant->id,
-            'name' => 'Creative Date Test',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
-            'status' => 'draft',
-        ]);
-
-        $orderLine = OrderLine::create([
-            'order_id' => $order->id,
-            'name' => 'Bounded Line',
-            'priority_tier' => 'estandar',
-            'starts_at' => '2026-08-05',
-            'ends_at' => '2026-08-20',
-            'status' => 'draft',
-        ]);
-
-        // active_dates with a date outside the OrderLine range
-        $this->expectException(ValidationException::class);
-        Creative::create([
-            'order_line_id' => $orderLine->id,
-            'content_id' => $this->content->id,
-            'weight' => 100,
-            'active_dates' => ['2026-08-05', '2026-08-25'], // 2026-08-25 > ends_at
-        ]);
-    }
-
-    public function test_creative_active_dates_before_order_line_start_fails(): void
-    {
-        $order = Order::create([
-            'tenant_id' => $this->tenant->id,
-            'name' => 'Creative Date Test 2',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
-            'status' => 'draft',
-        ]);
-
-        $orderLine = OrderLine::create([
-            'order_id' => $order->id,
-            'name' => 'Bounded Line 2',
-            'priority_tier' => 'estandar',
-            'starts_at' => '2026-08-05',
-            'ends_at' => '2026-08-20',
-            'status' => 'draft',
-        ]);
-
-        $this->expectException(ValidationException::class);
-        Creative::create([
-            'order_line_id' => $orderLine->id,
-            'content_id' => $this->content->id,
-            'weight' => 100,
-            'active_dates' => ['2026-08-01', '2026-08-10'], // 2026-08-01 < starts_at
         ]);
     }
 

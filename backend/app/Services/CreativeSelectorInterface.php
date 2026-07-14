@@ -3,17 +3,16 @@
 namespace App\Services;
 
 use App\Models\Creative;
-use App\Models\OrderLine;
+use Illuminate\Support\Collection;
 
 interface CreativeSelectorInterface
 {
     /**
-     * Selects the creative for a turn of the given order line.
-     * Respects weights and anti-repetition rule (window of min(pool_size-1, 5)).
+     * Selecciona un creativo del pool dado con anti-repetición.
      *
-     * @param OrderLine $line
-     * @param array<string> $recentHistory Array of recent creative IDs (most recent first)
+     * @param Collection<int, Creative> $pool Pool de creativos activos para hoy
+     * @param array<string> $recentHistory IDs recientes (más reciente primero)
      * @return Creative
      */
-    public function select(OrderLine $line, array $recentHistory): Creative;
+    public function select(Collection $pool, array $recentHistory): Creative;
 }

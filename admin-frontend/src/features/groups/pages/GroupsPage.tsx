@@ -30,6 +30,7 @@ import {
   useDeleteGroup,
 } from "../hooks";
 import { useTenantContext } from "@/contexts/TenantContext";
+import { useAuth } from "@/hooks/use-auth";
 import type { ScreenGroup } from "@/types/models";
 import type { CreateGroupInput } from "@/schemas/group.schema";
 
@@ -39,11 +40,15 @@ export default function GroupsPage() {
   const [editingGroup, setEditingGroup] = useState<ScreenGroup | null>(null);
   const [deletingGroup, setDeletingGroup] = useState<ScreenGroup | null>(null);
 
+  const { user } = useAuth();
+  const { selectedTenantId } = useTenantContext();
+  const isSuperAdmin = user?.role === 'super_admin';
+  const needsTenant = isSuperAdmin && !selectedTenantId;
+
   const { data: groups, isLoading, isError, refetch } = useGroups();
   const createGroup = useCreateGroup();
   const updateGroup = useUpdateGroup();
   const deleteGroup = useDeleteGroup();
-  const { selectedTenantId } = useTenantContext();
 
   const columns: ColumnDef<ScreenGroup, unknown>[] = [
     {
@@ -157,7 +162,7 @@ export default function GroupsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Grupos</h1>
-        <Button onClick={() => setCreateDialogOpen(true)}>
+        <Button onClick={() => setCreateDialogOpen(true)} disabled={needsTenant} title={needsTenant ? "Selecciona un Network para crear grupos" : undefined}>
           <Plus className="mr-2 h-4 w-4" />
           Crear grupo
         </Button>
@@ -205,9 +210,6 @@ export default function GroupsPage() {
               defaultValues={{
                 name: editingGroup.name,
                 duration_seconds: editingGroup.duration_seconds ?? undefined,
-                orientation: editingGroup.orientation ?? undefined,
-                resolution_width: editingGroup.resolution_width ?? undefined,
-                resolution_height: editingGroup.resolution_height ?? undefined,
               }}
               onSubmit={handleUpdate}
               isSubmitting={updateGroup.isPending}

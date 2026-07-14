@@ -15,12 +15,11 @@ export interface Screen {
   venue_id: string;
   name: string;
   status: string;
+  enabled: boolean;
   orientation: 'landscape' | 'portrait';
   resolution_width: number;
   resolution_height: number;
-  duration_seconds: number;
-  loop_config: LoopSlot[];
-  sources_config: SourcesConfig;
+  schedule: ScheduleSlot[] | null;
   last_heartbeat: string | null;
   created_at: string;
   updated_at: string;
@@ -29,30 +28,21 @@ export interface Screen {
   playlists?: Playlist[];
 }
 
-export interface LoopSlot {
-  position: number;
-  source: 'prodooh' | 'gam' | 'url' | 'playlist';
-  duration: number;
-}
-
-export interface SourcesConfig {
-  prodooh: boolean;
-  gam: boolean;
-  url: boolean;
-  playlist: boolean;
-}
-
 export interface ScreenGroup {
   id: string;
   tenant_id: string;
   name: string;
   duration_seconds: number | null;
-  orientation: 'landscape' | 'portrait' | null;
-  resolution_width: number | null;
-  resolution_height: number | null;
+  schedule: ScheduleSlot[] | null;
   created_at: string;
   screens_count?: number;
   screens?: Screen[];
+}
+
+export interface ScheduleSlot {
+  days: number[];
+  start: string;
+  end: string;
 }
 
 export interface Playlist {

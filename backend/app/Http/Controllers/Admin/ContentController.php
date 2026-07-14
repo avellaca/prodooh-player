@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Content;
+use App\Models\Creative;
 use App\Models\PlaylistItem;
 use App\Services\ContentLibraryService;
 use Illuminate\Http\JsonResponse;
@@ -18,12 +19,22 @@ class ContentController extends Controller
 
     /**
      * List all content for the authenticated user's tenant.
+     * Supports optional resolution filtering via query params width and height.
      *
      * GET /api/admin/content
+     * GET /api/admin/content?width=1920&height=1080
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $content = $this->contentLibraryService->list();
+        $query = Content::orderBy('created_at', 'desc');
+
+        if ($request->has('width') && $request->has('height')) {
+            $width = (int) $request->input('width');
+            $height = (int) $request->input('height');
+            $query->where('width', $width)->where('height', $height);
+        }
+
+        $content = $query->get();
 
         return response()->json(['data' => $content]);
     }
@@ -47,8 +58,8 @@ class ContentController extends Controller
             $tenantId = $request->input('tenant_id') ?? $request->query('tenant_id');
             if (!$tenantId) {
                 return response()->json([
-                    'message' => 'Content validation failed.',
-                    'errors' => ['tenant_id' => ['The tenant_id field is required for super-admin.']],
+                    'message' => 'La validación del contenido falló.',
+                    'errors' => ['tenant_id' => ['Debe seleccionar un network antes de subir contenido.']],
                 ], 422);
             }
         }
@@ -60,14 +71,14 @@ class ContentController extends Controller
 
         if ($result['content'] === null) {
             return response()->json([
-                'message' => 'Content validation failed.',
+                'message' => 'La validación del contenido falló.',
                 'errors' => $result['validation']->errors,
             ], 422);
         }
 
         return response()->json([
             'data' => $result['content'],
-            'message' => 'Content uploaded successfully.',
+            'message' => 'Contenido subido exitosamente.',
         ], 201);
     }
 
@@ -82,6 +93,13 @@ class ContentController extends Controller
 
         if (! $content) {
             return response()->json(['message' => 'Content not found.'], 404);
+        }
+
+        // Verificar FK antes de intentar delete
+        if (Creative::where('content_id', $content->id)->exists()) {
+            return response()->json([
+                'message' => 'No se puede eliminar este contenido porque está siendo utilizado por uno o más creativos activos. Elimine primero los creativos que lo referencian.',
+            ], 409);
         }
 
         $this->contentLibraryService->delete($content);

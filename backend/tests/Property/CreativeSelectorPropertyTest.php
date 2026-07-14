@@ -9,6 +9,7 @@ use App\Models\Tenant;
 use App\Services\CreativeSelector;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Collection;
 use Tests\TestCase;
 
 /**
@@ -34,7 +35,7 @@ class CreativeSelectorPropertyTest extends TestCase
     /**
      * Property 13: Creative selection anti-repetition
      *
-     * For any order line with N > 1 active creatives (N between 2 and 10),
+     * For any pool with N > 1 active creatives (N between 2 and 10),
      * running the selector in a loop for 100+ turns while maintaining history:
      * - The selected creative is NEVER the same as the immediately previous selection
      * - If N <= 5: the selected creative is NOT in the last N-1 selections
@@ -64,16 +65,16 @@ class CreativeSelectorPropertyTest extends TestCase
                 'status' => 'active',
             ]);
 
+            $pool = collect();
             for ($i = 0; $i < $poolSize; $i++) {
-                Creative::factory()->create([
+                $creative = Creative::factory()->create([
                     'order_line_id' => $line->id,
                     'weight' => random_int(1, 20),
-                    'active_dates' => [$today],
                 ]);
+                $pool->push($creative);
             }
 
-            $line->load('creatives');
-            $creativeIds = $line->creatives->pluck('id')->toArray();
+            $creativeIds = $pool->pluck('id')->toArray();
 
             // Calculate the expected anti-repetition window
             $windowSize = min($poolSize - 1, 5);
@@ -83,7 +84,7 @@ class CreativeSelectorPropertyTest extends TestCase
             $turns = 100;
 
             for ($turn = 0; $turn < $turns; $turn++) {
-                $selected = $this->selector->select($line, $history);
+                $selected = $this->selector->select($pool, $history);
 
                 // Assert: never the same as immediately previous (Requirement 5.2)
                 if (count($history) > 0) {

@@ -37,7 +37,7 @@ class OrderObserver
         });
 
         $screenIds->unique()->each(function ($screenId) {
-            RecalculateManifestJob::dispatch($screenId, true);
+            RecalculateManifestJob::dispatch($screenId, true)->afterCommit();
         });
     }
 }

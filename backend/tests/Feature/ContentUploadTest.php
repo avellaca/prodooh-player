@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Content;
+use App\Models\Creative;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -286,6 +287,64 @@ class ContentUploadTest extends TestCase
             ->deleteJson('/api/admin/content/nonexistent-uuid');
 
         $response->assertNotFound();
+    }
+
+    public function test_delete_returns_409_when_content_is_referenced_by_creatives(): void
+    {
+        $content = Content::create([
+            'tenant_id' => $this->tenant->id,
+            'filename' => 'referenced.jpg',
+            'mime_type' => 'image/jpeg',
+            'storage_path' => 'content/referenced.jpg',
+            'file_size_bytes' => 2048,
+            'width' => 1920,
+            'height' => 1080,
+            'orientation' => 'landscape',
+            'rotation' => 0,
+            'checksum_sha256' => hash('sha256', 'referenced'),
+        ]);
+
+        // Create a creative that references this content
+        Creative::factory()->create([
+            'content_id' => $content->id,
+        ]);
+
+        $response = $this->actingAsTenantAdmin()
+            ->deleteJson("/api/admin/content/{$content->id}");
+
+        $response->assertStatus(409)
+            ->assertJson([
+                'message' => 'No se puede eliminar este contenido porque está siendo utilizado por uno o más creativos activos. Elimine primero los creativos que lo referencian.',
+            ]);
+
+        // Content should still exist in database
+        $this->assertDatabaseHas('content', ['id' => $content->id]);
+    }
+
+    public function test_delete_succeeds_when_content_has_no_creative_references(): void
+    {
+        Storage::fake('local');
+
+        $content = Content::create([
+            'tenant_id' => $this->tenant->id,
+            'filename' => 'unreferenced.jpg',
+            'mime_type' => 'image/jpeg',
+            'storage_path' => 'content/unreferenced.jpg',
+            'file_size_bytes' => 1024,
+            'width' => 1920,
+            'height' => 1080,
+            'orientation' => 'landscape',
+            'rotation' => 0,
+            'checksum_sha256' => hash('sha256', 'unreferenced'),
+        ]);
+
+        $response = $this->actingAsTenantAdmin()
+            ->deleteJson("/api/admin/content/{$content->id}");
+
+        $response->assertOk()
+            ->assertJson(['message' => 'Content deleted successfully.']);
+
+        $this->assertDatabaseMissing('content', ['id' => $content->id]);
     }
 
     // ─── ACCESS CONTROL ─────────────────────────────────────────────────

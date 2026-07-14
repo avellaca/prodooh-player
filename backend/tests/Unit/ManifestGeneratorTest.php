@@ -6,6 +6,7 @@ use App\Models\Content;
 use App\Models\Creative;
 use App\Models\Order;
 use App\Models\OrderLine;
+use App\Models\OrderLineTarget;
 use App\Models\Playlist;
 use App\Models\PlaylistItem;
 use App\Models\Screen;
@@ -14,7 +15,6 @@ use App\Models\ScreenManifest;
 use App\Models\Tenant;
 use App\Services\CreativeSelector;
 use App\Services\ManifestGenerator;
-use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -47,8 +47,6 @@ class ManifestGeneratorTest extends TestCase
 
     private function createOrderLineWithCreative(): array
     {
-        $today = Carbon::today()->toDateString();
-
         $order = Order::factory()->create([
             'tenant_id' => $this->tenant->id,
             'status' => 'active',
@@ -59,19 +57,26 @@ class ManifestGeneratorTest extends TestCase
             'status' => 'active',
         ]);
 
+        // Create a target linking the order line to the screen
+        $target = OrderLineTarget::factory()->create([
+            'order_line_id' => $line->id,
+            'screen_id' => $this->screen->id,
+            'screen_group_id' => null,
+        ]);
+
         $content = Content::factory()->create([
             'tenant_id' => $this->tenant->id,
             'checksum_sha256' => hash('sha256', 'test-content'),
         ]);
 
         $creative = Creative::factory()->create([
+            'order_line_target_id' => $target->id,
             'order_line_id' => $line->id,
             'content_id' => $content->id,
             'weight' => 1,
-            'active_dates' => [$today],
         ]);
 
-        return ['line' => $line, 'creative' => $creative, 'content' => $content];
+        return ['line' => $line, 'creative' => $creative, 'content' => $content, 'target' => $target];
     }
 
     private function createPlaylistWithItems(int $itemCount = 2): Playlist
@@ -123,6 +128,7 @@ class ManifestGeneratorTest extends TestCase
             $this->assertArrayHasKey('checksum_sha256', $item);
             $this->assertArrayHasKey('order_line_id', $item);
             $this->assertArrayHasKey('creative_id', $item);
+            $this->assertArrayHasKey('target_id', $item);
             $this->assertArrayHasKey('duration_seconds', $item);
             $this->assertEquals(10, $item['duration_seconds']);
             $this->assertEquals($line->id, $item['order_line_id']);

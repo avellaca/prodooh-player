@@ -41,7 +41,7 @@ class RecalculateManifestJob implements ShouldQueue, ShouldBeUnique
     {
         $result = $engine->recalculate($this->screenId, $this->isIntraDay);
 
-        $screen = Screen::findOrFail($this->screenId);
+        $screen = Screen::withoutGlobalScopes()->findOrFail($this->screenId);
 
         $generator->generate(
             $screen,

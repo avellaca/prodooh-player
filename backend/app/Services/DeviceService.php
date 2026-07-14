@@ -15,7 +15,7 @@ class DeviceService
      */
     public function list()
     {
-        return Screen::all();
+        return Screen::with('screenGroup')->get();
     }
 
     /**
@@ -69,7 +69,7 @@ class DeviceService
      */
     public function show(string $id): Screen
     {
-        return Screen::findOrFail($id);
+        return Screen::with(['tenant', 'screenGroup', 'playlists'])->findOrFail($id);
     }
 
     /**

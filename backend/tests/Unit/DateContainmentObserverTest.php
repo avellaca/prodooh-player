@@ -129,110 +129,35 @@ class DateContainmentObserverTest extends TestCase
         $this->assertTrue(true);
     }
 
-    // ─── 13.6: Creative with active_dates outside OrderLine range → ValidationException ──
+    // ─── CreativeObserver no longer validates active_dates (moved to OrderLine level) ──
 
-    public function test_creating_creative_with_active_dates_outside_order_line_range_throws_validation_exception(): void
+    public function test_creative_observer_creating_does_not_validate_active_dates(): void
     {
-        $orderLine = new OrderLine();
-        $orderLine->starts_at = '2025-03-01';
-        $orderLine->ends_at = '2025-06-30';
-
         $creative = new Creative();
         $creative->order_line_id = fake()->uuid();
         $creative->content_id = fake()->uuid();
         $creative->weight = 100;
-        $creative->active_dates = ['2025-02-15', '2025-04-10']; // 2025-02-15 is before orderLine starts
-        $creative->setRelation('orderLine', $orderLine);
 
-        $this->expectException(ValidationException::class);
-
-        $observer = new CreativeObserver(new DateContainmentValidator());
-        $observer->creating($creative);
-    }
-
-    public function test_creating_creative_with_active_dates_after_order_line_end_throws_validation_exception(): void
-    {
-        $orderLine = new OrderLine();
-        $orderLine->starts_at = '2025-03-01';
-        $orderLine->ends_at = '2025-06-30';
-
-        $creative = new Creative();
-        $creative->order_line_id = fake()->uuid();
-        $creative->content_id = fake()->uuid();
-        $creative->weight = 100;
-        $creative->active_dates = ['2025-04-10', '2025-07-15']; // 2025-07-15 is after orderLine ends
-        $creative->setRelation('orderLine', $orderLine);
-
-        $this->expectException(ValidationException::class);
-
-        $observer = new CreativeObserver(new DateContainmentValidator());
-        $observer->creating($creative);
-    }
-
-    public function test_creating_creative_with_valid_active_dates_passes(): void
-    {
-        $orderLine = new OrderLine();
-        $orderLine->starts_at = '2025-03-01';
-        $orderLine->ends_at = '2025-06-30';
-
-        $creative = new Creative();
-        $creative->order_line_id = fake()->uuid();
-        $creative->content_id = fake()->uuid();
-        $creative->weight = 100;
-        $creative->active_dates = ['2025-03-15', '2025-04-10', '2025-06-30'];
-        $creative->setRelation('orderLine', $orderLine);
-
-        // Should not throw
+        // Should not throw - CreativeObserver no longer validates active_dates
         $observer = new CreativeObserver(new DateContainmentValidator());
         $observer->creating($creative);
         $this->assertTrue(true);
     }
 
-    public function test_updating_creative_with_dirty_active_dates_outside_range_throws(): void
+    public function test_creative_observer_updating_does_not_validate_active_dates(): void
     {
-        $orderLine = new OrderLine();
-        $orderLine->starts_at = '2025-03-01';
-        $orderLine->ends_at = '2025-06-30';
-
         $creative = new Creative();
         $creative->order_line_id = fake()->uuid();
         $creative->content_id = fake()->uuid();
         $creative->weight = 100;
-        $creative->active_dates = ['2025-03-15'];
-        $creative->setRelation('orderLine', $orderLine);
 
         // Sync original
         $creative->syncOriginal();
 
-        // Now change active_dates to be out of range
-        $creative->active_dates = ['2025-02-01', '2025-03-15'];
-
-        $this->expectException(ValidationException::class);
-
-        $observer = new CreativeObserver(new DateContainmentValidator());
-        $observer->updating($creative);
-    }
-
-    public function test_updating_creative_without_dirty_active_dates_skips_validation(): void
-    {
-        $orderLine = new OrderLine();
-        $orderLine->starts_at = '2025-03-01';
-        $orderLine->ends_at = '2025-06-30';
-
-        $creative = new Creative();
-        $creative->order_line_id = fake()->uuid();
-        $creative->content_id = fake()->uuid();
-        $creative->weight = 100;
-        $creative->active_dates = ['2025-02-01']; // Would be invalid, but not dirty
-        $creative->setRelation('orderLine', $orderLine);
-
-        // Sync original
-        $creative->syncOriginal();
-
-        // Change only weight (not active_dates)
+        // Change weight
         $creative->weight = 50;
 
-        // Should not throw - active_dates is not dirty
+        // Should not throw - CreativeObserver no longer validates active_dates
         $observer = new CreativeObserver(new DateContainmentValidator());
         $observer->updating($creative);
         $this->assertTrue(true);

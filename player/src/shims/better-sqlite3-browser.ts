@@ -163,11 +163,22 @@ class BrowserDatabase {
       if (!deleteMatch[2]) {
         this.tables.set(table, []);
       } else {
-        const whereCol = deleteMatch[2].match(/(\w+)\s*=\s*\?/)?.[1];
-        if (whereCol) {
+        const whereClause = deleteMatch[2];
+        // Support: WHERE col IN (?, ?, ...)
+        const inMatch = whereClause.match(/(\w+)\s+IN\s*\(([^)]+)\)/i);
+        if (inMatch) {
+          const col = inMatch[1]!;
           const rows = this.tables.get(table) || [];
-          const whereVal = params[0];
-          this.tables.set(table, rows.filter((r) => r[whereCol] !== whereVal));
+          const valuesToDelete = new Set(params.map(String));
+          this.tables.set(table, rows.filter((r) => !valuesToDelete.has(String(r[col]))));
+        } else {
+          // Support: WHERE col = ?
+          const whereCol = whereClause.match(/(\w+)\s*=\s*\?/)?.[1];
+          if (whereCol) {
+            const rows = this.tables.get(table) || [];
+            const whereVal = params[0];
+            this.tables.set(table, rows.filter((r) => r[whereCol] !== whereVal));
+          }
         }
       }
       this.saveToStorage();

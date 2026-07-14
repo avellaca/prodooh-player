@@ -8,9 +8,8 @@ import { Pencil, RefreshCw, Loader2, Trash2 } from "lucide-react";
 
 import { useScreen, useScreenshots, useUpdateScreen, useRegenerateToken, useDeleteScreen } from "../hooks";
 import { updateScreenSchema, type UpdateScreenInput } from "@/schemas/screen.schema";
-import { LoopEditor } from "../components/LoopEditor";
 import { ScreenshotGallery } from "../components/ScreenshotGallery";
-import { SourceToggles } from "../components/SourceToggles";
+import { ScheduleEditor } from "../components/ScheduleEditor";
 
 import { LoadingState } from "@/components/shared/LoadingState";
 import { ErrorState } from "@/components/shared/ErrorState";
@@ -85,13 +84,26 @@ export default function ScreenDetailPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">{screen.name}</h1>
-          <p className="text-sm text-muted-foreground">
-            ID: {screen.id}
-          </p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h1 className="text-2xl font-bold">{screen.name}</h1>
+            <p className="text-sm text-muted-foreground">
+              {screen.venue_id}
+            </p>
+          </div>
+          <Badge variant={screen.enabled !== false ? 'success' : 'secondary'}>
+            {screen.enabled !== false ? 'Activa' : 'Desactivada'}
+          </Badge>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              updateScreen.mutate({ id: id!, data: { enabled: !screen.enabled } as never });
+            }}
+          >
+            {screen.enabled !== false ? 'Desactivar' : 'Activar'}
+          </Button>
           <Button variant="outline" onClick={() => setShowEditDialog(true)}>
             <Pencil className="mr-2 h-4 w-4" />
             Editar
@@ -123,7 +135,7 @@ export default function ScreenDetailPage() {
         <CardContent>
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div>
-              <dt className="text-sm font-medium text-muted-foreground">Tenant</dt>
+              <dt className="text-sm font-medium text-muted-foreground">Network</dt>
               <dd className="text-sm">{screen.tenant?.name ?? screen.tenant_id}</dd>
             </div>
             <div>
@@ -166,32 +178,12 @@ export default function ScreenDetailPage() {
         </CardContent>
       </Card>
 
-      {/* Loop Config Section */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Configuración de Loop</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <LoopEditor
-            key={JSON.stringify(screen.loop_config)}
-            screenId={screen.id}
-            initialSlots={screen.loop_config}
-          />
-        </CardContent>
-      </Card>
-
-      {/* Sources Config Section */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Fuentes activas</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <SourceToggles
-            screenId={screen.id}
-            sourcesConfig={screen.sources_config}
-          />
-        </CardContent>
-      </Card>
+      {/* Schedule Editor */}
+      <ScheduleEditor
+        screenId={id!}
+        schedule={screen.schedule}
+        groupName={screen.screen_group?.name}
+      />
 
       {/* Screenshots Section */}
       <Card>
@@ -286,7 +278,6 @@ interface EditScreenDialogProps {
     orientation: "landscape" | "portrait";
     resolution_width: number;
     resolution_height: number;
-    duration_seconds: number;
   };
   onSubmit: (data: UpdateScreenInput) => void;
   isPending: boolean;
@@ -312,7 +303,6 @@ function EditScreenDialog({
       orientation: screen.orientation,
       resolution_width: screen.resolution_width,
       resolution_height: screen.resolution_height,
-      duration_seconds: screen.duration_seconds,
     },
   });
 
@@ -361,7 +351,7 @@ function EditScreenDialog({
               <Input
                 id="edit-width"
                 type="number"
-                {...register("resolution_width", { valueAsNumber: true })}
+                {...register("resolution_width")}
                 className={errors.resolution_width ? "border-red-500" : ""}
               />
               {errors.resolution_width && (
@@ -375,7 +365,7 @@ function EditScreenDialog({
               <Input
                 id="edit-height"
                 type="number"
-                {...register("resolution_height", { valueAsNumber: true })}
+                {...register("resolution_height")}
                 className={errors.resolution_height ? "border-red-500" : ""}
               />
               {errors.resolution_height && (
@@ -384,21 +374,6 @@ function EditScreenDialog({
                 </p>
               )}
             </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="edit-duration">Duración por defecto (s)</Label>
-            <Input
-              id="edit-duration"
-              type="number"
-              {...register("duration_seconds", { valueAsNumber: true })}
-              className={errors.duration_seconds ? "border-red-500" : ""}
-            />
-            {errors.duration_seconds && (
-              <p className="text-sm text-red-500">
-                {errors.duration_seconds.message}
-              </p>
-            )}
           </div>
 
           <DialogFooter>

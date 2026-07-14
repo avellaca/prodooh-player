@@ -33,6 +33,7 @@ class Screen extends Model
         'device_token_hash',
         'name',
         'status',
+        'enabled',
         'orientation',
         'resolution_width',
         'resolution_height',
@@ -61,6 +62,7 @@ class Screen extends Model
     protected function casts(): array
     {
         return [
+            'enabled' => 'boolean',
             'schedule' => 'array',
             'last_heartbeat' => 'datetime',
             'last_storage_status' => 'array',

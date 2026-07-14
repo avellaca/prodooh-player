@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\OrderLine;
 use App\Services\DeviceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -88,6 +89,7 @@ class ScreenController extends Controller
             'resolution_width' => ['sometimes', 'integer', 'min:1'],
             'resolution_height' => ['sometimes', 'integer', 'min:1'],
             'group_id' => ['sometimes', 'nullable', 'string'],
+            'enabled' => ['sometimes', 'boolean'],
             'duration_seconds' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'schedule' => ['sometimes', 'nullable', 'array'],
             'loop_config' => ['sometimes', 'nullable', 'array'],
@@ -129,5 +131,47 @@ class ScreenController extends Controller
         $screen->delete();
 
         return response()->json(['message' => 'Screen deleted successfully.']);
+    }
+
+    /**
+     * Get the current manifest for a screen.
+     */
+    public function manifest(string $id): JsonResponse
+    {
+        $screen = $this->deviceService->show($id);
+        $manifest = $screen->screenManifest;
+
+        if (!$manifest) {
+            return response()->json(['data' => null]);
+        }
+
+        return response()->json(['data' => $manifest]);
+    }
+
+    /**
+     * Get active order lines assigned to this screen (directly or via its group).
+     *
+     * GET /api/admin/screens/{id}/active-order-lines
+     */
+    public function activeOrderLines(string $id): JsonResponse
+    {
+        $screen = $this->deviceService->show($id);
+        $screenId = $screen->id;
+        $groupId = $screen->group_id;
+
+        $lines = OrderLine::query()
+            ->whereHas('targets', function ($q) use ($screenId, $groupId) {
+                $q->where(function ($inner) use ($screenId, $groupId) {
+                    $inner->where('screen_id', $screenId);
+                    if ($groupId) {
+                        $inner->orWhere('screen_group_id', $groupId);
+                    }
+                });
+            })
+            ->where('status', 'active')
+            ->with(['order:id,name,status'])
+            ->get();
+
+        return response()->json(['data' => $lines]);
     }
 }

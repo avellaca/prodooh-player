@@ -58,6 +58,7 @@ async function build() {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="data:,">
   <title>Prodooh Player</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -87,6 +88,12 @@ async function build() {
   if (existsSync(setupSource)) {
     cpSync(setupSource, resolve(outdir, 'setup.html'));
     console.log('✓ setup.html copied to dist/');
+  }
+
+  // Copy favicon.ico to dist
+  const faviconSource = resolve(__dirname, 'public/favicon.ico');
+  if (existsSync(faviconSource)) {
+    cpSync(faviconSource, resolve(outdir, 'favicon.ico'));
   }
 
   console.log('\\n✓ Build complete: dist/player.js + dist/index.html');

@@ -32,7 +32,7 @@ export interface HeartbeatRequest {
 
 export interface DeviceCommand {
   id: string;
-  type: 'screenshot' | 'config_update' | 'playlist_update';
+  type: 'screenshot' | 'config_update' | 'playlist_update' | 'speed_override' | 'preview_content';
   payload: Record<string, unknown>;
 }
 

@@ -18,13 +18,22 @@ class ProDoohProxyController extends Controller
      */
     public function fetchAd(Request $request): JsonResponse
     {
-        $request->validate([
+        \Log::info('SSP Ad Request', $request->all());
+
+        $validated = $request->validate([
             'api_key' => 'required|string',
             'network_id' => 'required|string',
             'venue_id' => 'required|string',
             'width' => 'required',
             'height' => 'required',
             'supported_media' => 'required|array',
+        ], [
+            'api_key.required' => 'El campo api_key es requerido para SSP.',
+            'network_id.required' => 'El campo network_id es requerido para SSP.',
+            'venue_id.required' => 'El campo venue_id es requerido para SSP.',
+            'width.required' => 'El campo width es requerido para SSP.',
+            'height.required' => 'El campo height es requerido para SSP.',
+            'supported_media.required' => 'El campo supported_media es requerido para SSP.',
         ]);
 
         $baseUrl = config('services.prodooh.base_url', 'https://sandbox.api.prodooh.com');

@@ -4,15 +4,15 @@ import Header from './Header';
 import { useAuth } from '@/hooks/use-auth';
 import { useTenantContext } from '@/contexts/TenantContext';
 
-const EXEMPT_PATHS = ['/tenants'];
+const EXEMPT_PATHS = ['/networks'];
 
 function TenantSelectionPrompt() {
   return (
     <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
       <Building2 className="h-12 w-12 text-muted-foreground mb-4" />
-      <h2 className="text-lg font-semibold mb-2">Selecciona un tenant</h2>
+      <h2 className="text-lg font-semibold mb-2">Selecciona un Network</h2>
       <p className="text-sm text-muted-foreground max-w-md">
-        Selecciona un tenant en el selector del encabezado para ver sus datos.
+        Selecciona un Network en el selector del encabezado para ver sus datos.
       </p>
     </div>
   );

@@ -21,13 +21,10 @@ class CreativeFactory extends Factory
      */
     public function definition(): array
     {
-        $today = now()->toDateString();
-
         return [
             'order_line_id' => OrderLine::factory(),
             'content_id' => Content::factory(),
             'weight' => fake()->numberBetween(1, 10),
-            'active_dates' => [$today],
         ];
     }
 }

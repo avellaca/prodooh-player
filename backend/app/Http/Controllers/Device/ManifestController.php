@@ -20,6 +20,7 @@ class ManifestController extends Controller
     public function show(Request $request): JsonResponse|Response
     {
         $screenId = $request->attributes->get('screen_id');
+        $screen = Screen::withoutGlobalScopes()->find($screenId);
 
         $manifest = ScreenManifest::where('screen_id', $screenId)->first();
 
@@ -41,6 +42,11 @@ class ManifestController extends Controller
             'version' => $manifest->version,
             'generated_at' => $manifest->generated_at->toIso8601String(),
             'items' => $manifest->items,
+            'screen' => [
+                'resolution_width' => $screen->resolution_width,
+                'resolution_height' => $screen->resolution_height,
+                'venue_id' => $screen->venue_id,
+            ],
         ])->header('ETag', $manifest->version);
     }
 
@@ -52,7 +58,7 @@ class ManifestController extends Controller
     public function confirm(Request $request): JsonResponse
     {
         $request->validate([
-            'version' => 'required|string',
+            'version' => 'nullable|string',
         ]);
 
         $screenId = $request->attributes->get('screen_id');
@@ -62,7 +68,9 @@ class ManifestController extends Controller
             return response()->json(['error' => 'Screen not found'], 404);
         }
 
-        $screen->update(['manifest_version' => $request->input('version')]);
+        if ($request->input('version')) {
+            $screen->update(['manifest_version' => $request->input('version')]);
+        }
 
         return response()->json(['ack' => true]);
     }

@@ -80,3 +80,17 @@ export function useAssignScreens() {
     },
   });
 }
+
+export function useApplyGroupSchedule() {
+  return useMutation({
+    mutationFn: (id: string) => groupsApi.applySchedule(id),
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: ['groups', id] });
+      queryClient.invalidateQueries({ queryKey: ['screens'] });
+      toast.success('Horario aplicado a todas las pantallas del grupo');
+    },
+    onError: (error: AxiosError<ApiError>) => {
+      toast.error(error.response?.data?.message ?? 'Error al aplicar horario');
+    },
+  });
+}
