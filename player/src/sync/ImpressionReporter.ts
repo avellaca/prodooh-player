@@ -20,6 +20,8 @@ export interface ImpressionRecord {
   duration_seconds: number;
   result: 'success' | 'failed';
   failure_reason?: string;
+  /** When set to 'witness', this impression does NOT count against target_spots */
+  mode?: 'normal' | 'witness';
 }
 
 /** Internal row shape stored in SQLite */

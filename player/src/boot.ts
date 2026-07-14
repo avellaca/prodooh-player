@@ -33,6 +33,8 @@ import { SspPrefetcher } from './engine/SspPrefetcher';
 import type { SspClient, SspContent } from './engine/SspPrefetcher';
 import { BrowserMediaDownloader } from './sync/BrowserMediaDownloader';
 import { SspRetryQueue } from './sync/SspRetryQueue';
+import { SpeedOverrideHandler } from './engine/SpeedOverrideHandler';
+import { PreviewContentHandler } from './services/PreviewContentHandler';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -52,6 +54,7 @@ export interface BootResult {
   manifestEngine: ManifestEngine | null;
   manifestSyncManager: ManifestSyncManager | null;
   impressionReporter: ImpressionReporter | null;
+  speedOverrideHandler: SpeedOverrideHandler | null;
   mode: 'normal' | 'cached' | 'factory';
   error?: string;
 }
@@ -130,6 +133,8 @@ export async function bootPlayer(options: BootOptions = {}): Promise<BootResult>
   let manifestSyncMgr: ManifestSyncManager | null = null;
   let impressionReporter: ImpressionReporter | null = null;
   let heartbeatService: HeartbeatService | null = null;
+  let speedOverrideHandler: SpeedOverrideHandler | null = null;
+  let previewContentHandler: PreviewContentHandler | null = null;
 
   if (authenticated && backendApi) {
     const apiClient = backendApi.getClient();
@@ -152,8 +157,14 @@ export async function bootPlayer(options: BootOptions = {}): Promise<BootResult>
     const sspProxyUrl = backendUrl ? `${backendUrl}/api/device/prodooh/ad` : '';
     const sspClient: SspClient = {
       async requestAd(durationSeconds: number): Promise<SspContent | null> {
-        if (!sspProxyUrl) return null;
+        // Skip SSP calls if no credentials configured
+        if (!sspProxyUrl || !localConfig.prodoohApiKey || !localConfig.prodoohNetworkId) return null;
         try {
+          // Get screen resolution from manifest (backend-authoritative)
+          const screenInfo = manifestSyncMgr?.getManifest()?.screen;
+          const width = screenInfo?.resolution_width ?? options.screenWidth ?? 1920;
+          const height = screenInfo?.resolution_height ?? options.screenHeight ?? 1080;
+
           const headers: Record<string, string> = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
@@ -168,23 +179,30 @@ export async function bootPlayer(options: BootOptions = {}): Promise<BootResult>
             body: JSON.stringify({
               api_key: localConfig.prodoohApiKey ?? '',
               network_id: localConfig.prodoohNetworkId ?? '',
-              venue_id: localConfig.venueId ?? '',
-              width: String(options.screenWidth ?? 1920),
-              height: String(options.screenHeight ?? 1080),
+              venue_id: screenInfo?.venue_id ?? localConfig.venueId ?? '',
+              width: String(width),
+              height: String(height),
               supported_media: ['image/jpeg', 'image/jpg', 'image/png', 'video/mp4', 'video/mpeg', 'video/mpg'],
-              duration: durationSeconds,
             }),
           });
           if (!response.ok) return null;
-          const data = await response.json() as { media?: string; print_id?: string; type?: string; pop_url?: string; expire_url?: string };
+          const data = await response.json() as {
+            media?: string;
+            print_id?: string;
+            type?: string;
+            pop_url?: string;
+            expire_url?: string;
+            proof_of_play?: string;
+            expiration?: string;
+          };
           if (!data.media || !data.print_id) return null;
           return {
             printId: data.print_id,
             assetUrl: data.media,
             durationSeconds,
             mimeType: data.type,
-            popUrl: data.pop_url ?? `${sspProxyUrl}/pop/${data.print_id}`,
-            expireUrl: data.expire_url ?? `${sspProxyUrl}/expire/${data.print_id}`,
+            popUrl: data.pop_url ?? data.proof_of_play ?? `${sspProxyUrl}/pop/${data.print_id}`,
+            expireUrl: data.expire_url ?? data.expiration ?? `${sspProxyUrl}/expire/${data.print_id}`,
           };
         } catch {
           return null;
@@ -231,6 +249,10 @@ export async function bootPlayer(options: BootOptions = {}): Promise<BootResult>
 
     const sspPrefetcher = new SspPrefetcher(sspClient, sspRetryQueue);
 
+    // 5b. SpeedOverrideHandler — manages Witness Mode speed override (Req 20.4, 20.5, 20.8)
+    speedOverrideHandler = new SpeedOverrideHandler();
+    const soHandler = speedOverrideHandler; // local reference for closures
+
     // 5. ManifestEngine — executes the pre-resolved manifest sequence
     const initialManifest: Manifest = manifestSyncMgr.getManifest() ?? {
       version: '',
@@ -244,16 +266,19 @@ export async function bootPlayer(options: BootOptions = {}): Promise<BootResult>
       onItemComplete: (item: ManifestItem, result, failureReason) => {
         // Only enqueue impressions for order_line_creative items (Req 9.6)
         if (item.type === 'order_line_creative' && item.order_line_id && item.creative_id) {
+          const effectiveDuration = soHandler.getEffectiveDuration(item.duration_seconds);
           const now = new Date().toISOString();
-          const startedAt = new Date(Date.now() - item.duration_seconds * 1000).toISOString();
+          const startedAt = new Date(Date.now() - effectiveDuration * 1000).toISOString();
           const impression: ImpressionRecord = {
             order_line_id: item.order_line_id,
             creative_id: item.creative_id,
             started_at: startedAt,
             ended_at: now,
-            duration_seconds: item.duration_seconds,
+            duration_seconds: effectiveDuration,
             result,
             failure_reason: failureReason,
+            // Flag as 'witness' during speed override (Req 20.8)
+            mode: soHandler.isWitnessMode() ? 'witness' : 'normal',
           };
           impressionReporter!.enqueue(impression);
         }
@@ -267,11 +292,23 @@ export async function bootPlayer(options: BootOptions = {}): Promise<BootResult>
         }
       },
       sspPrefetcher,
+      // Custom playback function that applies speed override to duration
+      playbackFn: async (item: ManifestItem) => {
+        const effectiveDuration = soHandler.getEffectiveDuration(item.duration_seconds);
+        await new Promise((resolve) => setTimeout(resolve, effectiveDuration * 1000));
+        return 'success' as const;
+      },
     });
 
     // 6. Connect ManifestSyncManager → ManifestEngine.updateManifest
     manifestSyncMgr.onManifestUpdate((newManifest: Manifest) => {
       manifestEngine!.updateManifest(newManifest);
+    });
+
+    // 6b. PreviewContentHandler — handles preview_content commands (Req 21.4, 21.5, 21.7)
+    previewContentHandler = new PreviewContentHandler({
+      manifestEngine,
+      downloader: manifestDownloader,
     });
 
     // 7. Start ManifestSyncManager polling (every 60s)
@@ -309,6 +346,16 @@ export async function bootPlayer(options: BootOptions = {}): Promise<BootResult>
     heartbeatService = new HeartbeatService({
       client: apiClient,
       statusProvider,
+      commandHandler: {
+        async handleCommand(command) {
+          if (command.type === 'speed_override') {
+            soHandler.handleCommand(command);
+          } else if (command.type === 'preview_content') {
+            await previewContentHandler!.handleCommand(command);
+          }
+          // Other command types (screenshot, etc.) handled elsewhere
+        },
+      },
       intervalMs: 30_000,
     });
 
@@ -328,6 +375,7 @@ export async function bootPlayer(options: BootOptions = {}): Promise<BootResult>
     manifestEngine,
     manifestSyncManager: manifestSyncMgr,
     impressionReporter,
+    speedOverrideHandler,
     mode,
   };
 }

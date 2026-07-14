@@ -11,13 +11,14 @@ class OrderLineObserver
     /**
      * Fields that, when changed, require a manifest recalculation.
      */
-    private const RECALCULATE_FIELDS = ['status', 'starts_at', 'ends_at', 'target_spots'];
+    private const RECALCULATE_FIELDS = ['status', 'starts_at', 'ends_at', 'target_spots', 'active_dates'];
 
     public function __construct(private DateContainmentValidator $validator) {}
 
     public function creating(OrderLine $orderLine): void
     {
         $this->validator->validateOrderLineDates($orderLine);
+        $this->validator->validateOrderLineActiveDates($orderLine);
     }
 
     public function created(OrderLine $orderLine): void
@@ -29,6 +30,9 @@ class OrderLineObserver
     {
         if ($orderLine->isDirty(['starts_at', 'ends_at'])) {
             $this->validator->validateOrderLineDates($orderLine);
+        }
+        if ($orderLine->isDirty('active_dates')) {
+            $this->validator->validateOrderLineActiveDates($orderLine);
         }
     }
 
@@ -52,7 +56,7 @@ class OrderLineObserver
         $screens = $orderLine->resolveTargetScreens();
 
         foreach ($screens as $screen) {
-            RecalculateManifestJob::dispatch($screen->id, true);
+            RecalculateManifestJob::dispatch($screen->id, true)->afterCommit();
         }
     }
 }

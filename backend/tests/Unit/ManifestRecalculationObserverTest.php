@@ -3,6 +3,8 @@
 namespace Tests\Unit;
 
 use App\Jobs\RecalculateManifestJob;
+use App\Models\Content;
+use App\Models\Creative;
 use App\Models\Order;
 use App\Models\OrderLine;
 use App\Models\OrderLineTarget;
@@ -153,6 +155,30 @@ class ManifestRecalculationObserverTest extends TestCase
         Queue::fake();
 
         $line->update(['ends_at' => now()->addDays(20)]);
+
+        Queue::assertPushed(RecalculateManifestJob::class, function ($job) {
+            return $job->screenId === $this->screen->id && $job->isIntraDay === true;
+        });
+    }
+
+    public function test_updating_order_line_active_dates_dispatches_recalculate(): void
+    {
+        $line = OrderLine::factory()->create([
+            'order_id' => $this->order->id,
+            'status' => 'active',
+            'starts_at' => now()->subDay(),
+            'ends_at' => now()->addDays(10),
+            'active_dates' => [now()->toDateString()],
+        ]);
+
+        OrderLineTarget::create([
+            'order_line_id' => $line->id,
+            'screen_id' => $this->screen->id,
+        ]);
+
+        Queue::fake();
+
+        $line->update(['active_dates' => [now()->toDateString(), now()->addDay()->toDateString()]]);
 
         Queue::assertPushed(RecalculateManifestJob::class, function ($job) {
             return $job->screenId === $this->screen->id && $job->isIntraDay === true;
@@ -338,5 +364,175 @@ class ManifestRecalculationObserverTest extends TestCase
 
         // Should only dispatch once for the same screen thanks to unique()
         Queue::assertPushed(RecalculateManifestJob::class, 1);
+    }
+
+    // ─── OrderLineTarget Created ────────────────────────────────────────────────
+
+    public function test_creating_order_line_target_dispatches_recalculate_for_screen(): void
+    {
+        $line = OrderLine::factory()->create([
+            'order_id' => $this->order->id,
+            'status' => 'active',
+            'starts_at' => now()->subDay(),
+            'ends_at' => now()->addDays(10),
+        ]);
+
+        Queue::fake();
+
+        OrderLineTarget::create([
+            'order_line_id' => $line->id,
+            'screen_id' => $this->screen->id,
+        ]);
+
+        Queue::assertPushed(RecalculateManifestJob::class, function ($job) {
+            return $job->screenId === $this->screen->id && $job->isIntraDay === true;
+        });
+    }
+
+    public function test_creating_order_line_target_with_group_dispatches_for_all_group_screens(): void
+    {
+        $screen2 = Screen::factory()->create([
+            'tenant_id' => $this->tenant->id,
+            'group_id' => $this->group->id,
+        ]);
+
+        $line = OrderLine::factory()->create([
+            'order_id' => $this->order->id,
+            'status' => 'active',
+            'starts_at' => now()->subDay(),
+            'ends_at' => now()->addDays(10),
+        ]);
+
+        Queue::fake();
+
+        OrderLineTarget::create([
+            'order_line_id' => $line->id,
+            'screen_group_id' => $this->group->id,
+        ]);
+
+        Queue::assertPushed(RecalculateManifestJob::class, function ($job) {
+            return $job->screenId === $this->screen->id && $job->isIntraDay === true;
+        });
+
+        Queue::assertPushed(RecalculateManifestJob::class, function ($job) use ($screen2) {
+            return $job->screenId === $screen2->id && $job->isIntraDay === true;
+        });
+    }
+
+    // ─── OrderLineTarget Deleted ────────────────────────────────────────────────
+
+    public function test_deleting_order_line_target_dispatches_recalculate_for_screen(): void
+    {
+        $line = OrderLine::factory()->create([
+            'order_id' => $this->order->id,
+            'status' => 'active',
+            'starts_at' => now()->subDay(),
+            'ends_at' => now()->addDays(10),
+        ]);
+
+        $target = OrderLineTarget::create([
+            'order_line_id' => $line->id,
+            'screen_id' => $this->screen->id,
+        ]);
+
+        Queue::fake();
+
+        $target->delete();
+
+        Queue::assertPushed(RecalculateManifestJob::class, function ($job) {
+            return $job->screenId === $this->screen->id && $job->isIntraDay === true;
+        });
+    }
+
+    // ─── Creative Created ───────────────────────────────────────────────────────
+
+    public function test_creating_creative_dispatches_recalculate_for_target_screens(): void
+    {
+        $line = OrderLine::factory()->create([
+            'order_id' => $this->order->id,
+            'status' => 'active',
+            'starts_at' => now()->subDay(),
+            'ends_at' => now()->addDays(10),
+        ]);
+
+        OrderLineTarget::create([
+            'order_line_id' => $line->id,
+            'screen_id' => $this->screen->id,
+        ]);
+
+        $content = Content::factory()->create(['tenant_id' => $this->tenant->id]);
+
+        Queue::fake();
+
+        Creative::factory()->create([
+            'order_line_id' => $line->id,
+            'content_id' => $content->id,
+        ]);
+
+        Queue::assertPushed(RecalculateManifestJob::class, function ($job) {
+            return $job->screenId === $this->screen->id && $job->isIntraDay === true;
+        });
+    }
+
+    // ─── Creative Updated ───────────────────────────────────────────────────────
+
+    public function test_updating_creative_weight_dispatches_recalculate(): void
+    {
+        $line = OrderLine::factory()->create([
+            'order_id' => $this->order->id,
+            'status' => 'active',
+            'starts_at' => now()->subDay(),
+            'ends_at' => now()->addDays(10),
+        ]);
+
+        OrderLineTarget::create([
+            'order_line_id' => $line->id,
+            'screen_id' => $this->screen->id,
+        ]);
+
+        $content = Content::factory()->create(['tenant_id' => $this->tenant->id]);
+        $creative = Creative::factory()->create([
+            'order_line_id' => $line->id,
+            'content_id' => $content->id,
+        ]);
+
+        Queue::fake();
+
+        $creative->update(['weight' => 5]);
+
+        Queue::assertPushed(RecalculateManifestJob::class, function ($job) {
+            return $job->screenId === $this->screen->id && $job->isIntraDay === true;
+        });
+    }
+
+    // ─── Creative Deleted ───────────────────────────────────────────────────────
+
+    public function test_deleting_creative_dispatches_recalculate(): void
+    {
+        $line = OrderLine::factory()->create([
+            'order_id' => $this->order->id,
+            'status' => 'active',
+            'starts_at' => now()->subDay(),
+            'ends_at' => now()->addDays(10),
+        ]);
+
+        OrderLineTarget::create([
+            'order_line_id' => $line->id,
+            'screen_id' => $this->screen->id,
+        ]);
+
+        $content = Content::factory()->create(['tenant_id' => $this->tenant->id]);
+        $creative = Creative::factory()->create([
+            'order_line_id' => $line->id,
+            'content_id' => $content->id,
+        ]);
+
+        Queue::fake();
+
+        $creative->delete();
+
+        Queue::assertPushed(RecalculateManifestJob::class, function ($job) {
+            return $job->screenId === $this->screen->id && $job->isIntraDay === true;
+        });
     }
 }

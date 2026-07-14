@@ -613,9 +613,10 @@ class PriorityEngineTest extends TestCase
             'status' => 'active',
         ]);
 
+        // OrderLine has active_dates that do NOT include today (2026-08-05)
         $line = OrderLine::create([
             'order_id' => $order->id,
-            'name' => 'No Creative Today',
+            'name' => 'No Active Date Today',
             'priority_tier' => 'estandar',
             'starts_at' => '2026-08-01',
             'ends_at' => '2026-08-15',
@@ -623,20 +624,20 @@ class PriorityEngineTest extends TestCase
             'delivery_pace' => 'uniform',
             'share_weight' => 100,
             'status' => 'active',
-        ]);
-
-        // Creative only active on different dates
-        Creative::create([
-            'order_line_id' => $line->id,
-            'content_id' => $this->content->id,
-            'weight' => 100,
             'active_dates' => ['2026-08-01', '2026-08-10'],
         ]);
 
-        OrderLineTarget::create([
+        $target = OrderLineTarget::create([
             'order_line_id' => $line->id,
             'screen_id' => $this->screen->id,
             'screen_group_id' => null,
+        ]);
+
+        Creative::create([
+            'order_line_target_id' => $target->id,
+            'order_line_id' => $line->id,
+            'content_id' => $this->content->id,
+            'weight' => 100,
         ]);
 
         $activeLines = $this->engine->filterActiveLines($this->screen);

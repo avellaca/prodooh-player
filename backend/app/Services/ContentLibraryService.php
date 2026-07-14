@@ -6,6 +6,7 @@ use App\Models\Content;
 use App\Services\ContentValidation\ContentValidationPipeline;
 use App\Services\ContentValidation\ValidationResult;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -41,6 +42,18 @@ class ContentLibraryService
         $mimeType = $file->getMimeType();
         $isVideo = str_starts_with($mimeType, 'video/');
 
+        // Extract dimensions — store null if extraction failed (does not block upload)
+        $width = $validation->metadata['width'] ?? null;
+        $height = $validation->metadata['height'] ?? null;
+
+        if ($width === null || $height === null) {
+            Log::warning('Content uploaded without dimensions — extraction failed or unavailable', [
+                'filename' => $filename,
+                'mime_type' => $mimeType,
+                'tenant_id' => $tenantId,
+            ]);
+        }
+
         // Create Content record
         $content = Content::create([
             'tenant_id' => $tenantId,
@@ -48,8 +61,8 @@ class ContentLibraryService
             'mime_type' => $mimeType,
             'storage_path' => $storagePath,
             'file_size_bytes' => $validation->metadata['file_size_bytes'],
-            'width' => $validation->metadata['width'] ?? 0,
-            'height' => $validation->metadata['height'] ?? 0,
+            'width' => $width,
+            'height' => $height,
             'duration_seconds' => $isVideo ? 0 : null,
             'orientation' => $validation->metadata['orientation'] ?? 'landscape',
             'rotation' => 0,

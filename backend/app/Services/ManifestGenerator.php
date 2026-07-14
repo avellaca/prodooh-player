@@ -2,7 +2,9 @@
 
 namespace App\Services;
 
+use App\Models\Creative;
 use App\Models\OrderLine;
+use App\Models\OrderLineTarget;
 use App\Models\Screen;
 use App\Models\ScreenManifest;
 use Illuminate\Support\Collection;
@@ -66,7 +68,11 @@ class ManifestGenerator implements ManifestGeneratorInterface
     /**
      * Build manifest items for order_line_creative entries from the sequence.
      *
-     * Tracks recentHistory per order_line_id to maintain anti-repetition across the manifest.
+     * Resolves creatives by screen: loads only creatives assigned to targets
+     * that reference this specific screen (directly or via screen group).
+     * Filters by OrderLine active_dates (null/empty = active every day in range,
+     * non-empty = active only on listed dates).
+     * Groups by order_line_id and applies anti-repetition per order line.
      *
      * @param Screen $screen
      * @param array<array{position: int, order_line_id: string}> $sequence
@@ -78,18 +84,52 @@ class ManifestGenerator implements ManifestGeneratorInterface
         $items = [];
         $recentHistory = []; // keyed by order_line_id
 
-        // Pre-load order lines with creatives and content
-        $orderLineIds = array_unique(array_column($sequence, 'order_line_id'));
-        $orderLines = OrderLine::with(['creatives.content'])
-            ->whereIn('id', $orderLineIds)
+        // Resolve the target_ids for this screen (direct + via screen group)
+        $screenTargetIds = $this->resolveTargetIdsForScreen($screen);
+
+        if (empty($screenTargetIds)) {
+            return $items;
+        }
+
+        $today = now()->toDateString();
+
+        // Load order lines that are active today via their active_dates (or null = always active in range)
+        $activeOrderLineIds = OrderLine::whereHas('targets', fn($q) => $q->whereIn('id', $screenTargetIds))
+            ->where('status', 'active')
+            ->where('starts_at', '<=', $today)
+            ->where('ends_at', '>=', $today)
+            ->where(function ($query) use ($today) {
+                $query->whereNull('active_dates')
+                      ->orWhereJsonLength('active_dates', 0)
+                      ->orWhereJsonContains('active_dates', $today);
+            })
+            ->pluck('id')
+            ->toArray();
+
+        // Load creatives from active order lines' targets
+        // Filter by resolution: only include creatives that match this screen's resolution
+        // (or legacy creatives with null resolution fields)
+        $creativesByOrderLine = Creative::with(['content', 'orderLineTarget'])
+            ->whereIn('order_line_target_id', $screenTargetIds)
+            ->whereHas('orderLineTarget', fn($q) => $q->whereIn('order_line_id', $activeOrderLineIds))
+            ->where(function ($query) use ($screen) {
+                $query->where(function ($q) use ($screen) {
+                    $q->where('resolution_width', $screen->resolution_width)
+                      ->where('resolution_height', $screen->resolution_height);
+                })->orWhere(function ($q) {
+                    $q->whereNull('resolution_width')
+                      ->whereNull('resolution_height');
+                });
+            })
             ->get()
-            ->keyBy('id');
+            ->groupBy(fn($creative) => $creative->orderLineTarget->order_line_id);
 
         foreach ($sequence as $entry) {
             $orderLineId = $entry['order_line_id'];
-            $line = $orderLines->get($orderLineId);
+            $pool = $creativesByOrderLine->get($orderLineId, collect());
 
-            if (!$line) {
+            // No creatives for this screen on this order line → skip
+            if ($pool->isEmpty()) {
                 continue;
             }
 
@@ -98,8 +138,8 @@ class ManifestGenerator implements ManifestGeneratorInterface
                 $recentHistory[$orderLineId] = [];
             }
 
-            // Select creative using anti-repetition
-            $creative = $this->creativeSelector->select($line, $recentHistory[$orderLineId]);
+            // Select creative using weighted random with anti-repetition
+            $creative = $this->creativeSelector->select($pool, $recentHistory[$orderLineId]);
 
             // Update recent history (most recent first)
             array_unshift($recentHistory[$orderLineId], $creative->id);
@@ -114,10 +154,27 @@ class ManifestGenerator implements ManifestGeneratorInterface
                 'duration_seconds' => $durationSeconds,
                 'order_line_id' => $orderLineId,
                 'creative_id' => $creative->id,
+                'target_id' => $creative->order_line_target_id,
             ];
         }
 
         return $items;
+    }
+
+    /**
+     * Resolve the target IDs that reference this screen (directly or via screen group).
+     *
+     * @param Screen $screen
+     * @return array<string>
+     */
+    private function resolveTargetIdsForScreen(Screen $screen): array
+    {
+        return OrderLineTarget::where(function ($query) use ($screen) {
+            $query->where('screen_id', $screen->id);
+            if ($screen->group_id) {
+                $query->orWhere('screen_group_id', $screen->group_id);
+            }
+        })->pluck('id')->toArray();
     }
 
     /**
@@ -177,12 +234,13 @@ class ManifestGenerator implements ManifestGeneratorInterface
     }
 
     /**
-     * Merge all item types and assign sequential 0-based positions.
+     * Merge all item types and distribute them uniformly across the total positions.
      *
-     * Order line items occupy their original positions from the sequence.
-     * SSP and playlist items fill the remaining positions, distributed evenly.
+     * Order line items are evenly spaced throughout the manifest (not clustered at start).
+     * SSP and playlist items fill the gaps between order line spots.
+     * Priority is preserved: items appear in the sequence order but distributed evenly.
      *
-     * @param array $orderLineItems Items from order lines (with original positions)
+     * @param array $orderLineItems Items from order lines
      * @param array $sspItems SSP slot items
      * @param array $playlistItems Playlist slot items
      * @param int $totalPositions Total number of positions in the manifest
@@ -194,48 +252,60 @@ class ManifestGenerator implements ManifestGeneratorInterface
             return [];
         }
 
-        // Determine which positions are taken by order_line items
-        $occupiedPositions = [];
-        foreach ($orderLineItems as $item) {
-            $occupiedPositions[] = $item['position'];
-        }
-
-        // Find free positions for SSP and playlist items
-        $freePositions = [];
-        for ($i = 0; $i < $totalPositions; $i++) {
-            if (!in_array($i, $occupiedPositions)) {
-                $freePositions[] = $i;
-            }
-        }
-
-        // Distribute SSP and playlist items across free positions
-        // Interleave them: alternate SSP and playlist in the free positions
+        $orderCount = count($orderLineItems);
         $fillerItems = $this->interleaveFillers($sspItems, $playlistItems);
+        $fillerCount = count($fillerItems);
 
-        // Assign free positions to filler items
-        $allItems = [];
-
-        // Add order_line items (keep their positions)
-        foreach ($orderLineItems as $item) {
-            $allItems[] = $item;
-        }
-
-        // Assign free positions to filler items
-        foreach ($fillerItems as $index => $item) {
-            if ($index < count($freePositions)) {
-                $item['position'] = $freePositions[$index];
-                $allItems[] = $item;
+        // If no order items, just return fillers sequentially
+        if ($orderCount === 0) {
+            $result = [];
+            foreach ($fillerItems as $idx => $item) {
+                $item['position'] = $idx;
+                $result[] = $item;
             }
+            return $result;
         }
 
-        // Sort by position for final output
-        usort($allItems, fn($a, $b) => $a['position'] <=> $b['position']);
+        // If no fillers, just return order items sequentially
+        if ($fillerCount === 0) {
+            $result = [];
+            foreach ($orderLineItems as $idx => $item) {
+                $item['position'] = $idx;
+                $result[] = $item;
+            }
+            return $result;
+        }
 
-        // Reassign sequential positions (0-based) to ensure contiguity
+        // Distribute order_line items uniformly across totalPositions
+        // Calculate the interval: one order_line item every N positions
+        $interval = $totalPositions / $orderCount;
+
+        // Assign target positions to order_line items (evenly spaced)
+        $orderPositions = [];
+        for ($i = 0; $i < $orderCount; $i++) {
+            $orderPositions[] = (int) round($i * $interval);
+        }
+
+        // Build the final array: place order items at their calculated positions,
+        // fill everything else with filler items
         $result = [];
-        foreach (array_values($allItems) as $idx => $item) {
-            $item['position'] = $idx;
-            $result[] = $item;
+        $orderIdx = 0;
+        $fillerIdx = 0;
+
+        for ($pos = 0; $pos < $totalPositions; $pos++) {
+            if ($orderIdx < $orderCount && in_array($pos, $orderPositions)) {
+                $item = $orderLineItems[$orderIdx];
+                $item['position'] = $pos;
+                $result[] = $item;
+                $orderIdx++;
+            } else {
+                if ($fillerIdx < $fillerCount) {
+                    $item = $fillerItems[$fillerIdx];
+                    $item['position'] = $pos;
+                    $result[] = $item;
+                    $fillerIdx++;
+                }
+            }
         }
 
         return $result;

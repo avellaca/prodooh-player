@@ -12,6 +12,7 @@
 
 import { bootPlayer } from './boot';
 import { FullscreenRenderer } from './display/FullscreenRenderer';
+import type { ManifestItem } from './sync/ManifestSyncManager';
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -96,7 +97,10 @@ async function main(): Promise<void> {
     // Prepare the renderer (created after boot succeeds)
     let renderer: FullscreenRenderer | null = null;
 
-    const result = await bootPlayer({});
+    const result = await bootPlayer({
+      screenWidth: window.screen.width,
+      screenHeight: window.screen.height,
+    });
 
     if (!result.success) {
       showMessage(root, '❌ Error de inicio', result.error ?? 'No se pudo iniciar el engine');
@@ -107,10 +111,36 @@ async function main(): Promise<void> {
 
     // Set up the renderer
     resetRootForPlayer(root);
-    renderer = new FullscreenRenderer(root, { type: 'fade', durationMs: 500 });
+    renderer = new FullscreenRenderer(root, { type: 'cut', durationMs: 0 });
 
-    // Start the ManifestEngine
-    if (result.manifestEngine) {
+    // Start the ManifestEngine with renderer wired
+    if (result.manifestEngine && result.manifestSyncManager) {
+      const syncMgr = result.manifestSyncManager;
+
+      // Wire onItemStart to display content via the renderer
+      result.manifestEngine.onItemStartCallback = (item) => {
+        if (!renderer) return;
+        if (!item.asset_url) return; // SSP calls without prefetched content
+
+        const localUrl = syncMgr.getLocalUrl(item.asset_url);
+
+        // Determine content type: from sync manager (downloaded assets) or URL extension (SSP)
+        const isVideo = syncMgr.isVideo(item.asset_url) ||
+          /\.(mp4|webm|ogg|mov|mpeg|mpg)(\?.*)?$/i.test(item.asset_url);
+
+        renderer.transitionTo({
+          id: item.creative_id ?? item.playlist_item_id ?? `pos-${item.position}`,
+          type: isVideo ? 'video' : 'image',
+          source: item.type === 'playlist_item' ? 'playlist' : 'prodooh',
+          mediaUrl: localUrl,
+          duration: item.duration_seconds,
+          metadata: {
+            order_line_id: item.order_line_id,
+            position: item.position,
+          },
+        });
+      };
+
       console.log('[main] Starting ManifestEngine...');
       void result.manifestEngine.run();
     } else {

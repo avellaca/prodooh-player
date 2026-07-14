@@ -40,9 +40,16 @@ export default function LoginPage() {
   function onSubmit(data: LoginFormValues) {
     loginMutation.mutate(data, {
       onSuccess: () => {
-        navigate('/screens');
+        navigate('/orders');
       },
     });
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLFormElement>) {
+    if (e.key === 'Enter' && !loginMutation.isPending) {
+      e.preventDefault();
+      handleSubmit(onSubmit)();
+    }
   }
 
   return (
@@ -57,7 +64,7 @@ export default function LoginPage() {
             <CardTitle className="text-center text-lg">Iniciar sesión</CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            <form onSubmit={handleSubmit(onSubmit)} onKeyDown={handleKeyDown} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <Input

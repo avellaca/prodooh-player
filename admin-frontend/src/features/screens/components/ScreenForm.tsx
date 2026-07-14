@@ -117,7 +117,7 @@ export function ScreenForm({ onSuccess }: ScreenFormProps) {
               id="resolution_width"
               type="number"
               placeholder="1920"
-              {...register('resolution_width', { valueAsNumber: true })}
+              {...register('resolution_width')}
             />
             {errors.resolution_width && (
               <p className="text-sm text-destructive">{errors.resolution_width.message}</p>
@@ -130,7 +130,7 @@ export function ScreenForm({ onSuccess }: ScreenFormProps) {
               id="resolution_height"
               type="number"
               placeholder="1080"
-              {...register('resolution_height', { valueAsNumber: true })}
+              {...register('resolution_height')}
             />
             {errors.resolution_height && (
               <p className="text-sm text-destructive">{errors.resolution_height.message}</p>

@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\Models\Order;
 use App\Models\OrderLine;
-use App\Models\Creative;
 use Illuminate\Validation\ValidationException;
 
 class DateContainmentValidator
@@ -14,7 +13,7 @@ class DateContainmentValidator
      */
     public function validateOrderLineDates(OrderLine $orderLine): void
     {
-        $order = $orderLine->order ?? Order::findOrFail($orderLine->order_id);
+        $order = $orderLine->order ?? Order::withoutGlobalScopes()->findOrFail($orderLine->order_id);
 
         if ($orderLine->starts_at->lt($order->starts_at) || $orderLine->ends_at->gt($order->ends_at)) {
             throw ValidationException::withMessages([
@@ -24,20 +23,25 @@ class DateContainmentValidator
     }
 
     /**
-     * Validate that a Creative's active_dates are within its parent OrderLine's range.
+     * Validate that an OrderLine's active_dates are within its parent Order's range.
      */
-    public function validateCreativeActiveDates(Creative $creative): void
+    public function validateOrderLineActiveDates(OrderLine $orderLine): void
     {
-        $orderLine = $creative->orderLine ?? OrderLine::findOrFail($creative->order_line_id);
+        if (empty($orderLine->active_dates)) {
+            return; // null or empty is valid (means "all days in range")
+        }
 
-        $invalidDates = collect($creative->active_dates)->filter(function ($dateStr) use ($orderLine) {
-            $date = \Carbon\Carbon::parse($dateStr);
-            return $date->lt($orderLine->starts_at) || $date->gt($orderLine->ends_at);
-        });
+        $order = $orderLine->order ?? Order::withoutGlobalScopes()->findOrFail($orderLine->order_id);
+        $startsAt = $order->starts_at->toDateString();
+        $endsAt = $order->ends_at->toDateString();
+
+        $invalidDates = collect($orderLine->active_dates)->filter(
+            fn(string $date) => $date < $startsAt || $date > $endsAt
+        );
 
         if ($invalidDates->isNotEmpty()) {
             throw ValidationException::withMessages([
-                'active_dates' => "Creative active dates must be within the parent order line range ({$orderLine->starts_at->toDateString()} to {$orderLine->ends_at->toDateString()}). Invalid: " . $invalidDates->implode(', '),
+                'active_dates' => "Las fechas activas deben estar dentro del rango del pedido ({$startsAt} a {$endsAt}). Inválidas: " . $invalidDates->implode(', '),
             ]);
         }
     }

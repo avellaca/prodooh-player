@@ -26,13 +26,13 @@ class CodecValidator implements ContentValidator
             return ValidationResult::pass(['codec' => $mimeType]);
         }
 
-        // Video: for MVP, accept video/mp4 as H.264/H.265 compatible
-        if ($mimeType === 'video/mp4') {
-            return ValidationResult::pass(['codec' => 'h264/h265 (assumed from mp4 container)']);
+        // Video: accept video/mp4 and video/quicktime as compatible containers
+        if ($mimeType === 'video/mp4' || $mimeType === 'video/quicktime') {
+            return ValidationResult::pass(['codec' => 'h264/h265 (assumed from container)']);
         }
 
         return ValidationResult::fail(
-            "Unsupported video codec. Only H.264 and H.265 in MP4 container are supported.",
+            "Códec de video no soportado. Solo se admite H.264 y H.265 en contenedor MP4.",
             ['mime_type' => $mimeType]
         );
     }

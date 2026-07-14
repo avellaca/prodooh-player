@@ -3,7 +3,7 @@ import ProtectedRoute from '@/components/layout/ProtectedRoute';
 import RoleGuard from '@/components/layout/RoleGuard';
 import AppLayout from '@/components/layout/AppLayout';
 import LoginPage from '@/features/auth/pages/LoginPage';
-import TenantsPage from '@/features/tenants/pages/TenantsPage';
+import NetworksPage from '@/features/tenants/pages/NetworksPage';
 import ScreensPage from '@/features/screens/pages/ScreensPage';
 import ScreenDetailPage from '@/features/screens/pages/ScreenDetailPage';
 import GroupsPage from '@/features/groups/pages/GroupsPage';
@@ -11,6 +11,9 @@ import GroupDetailPage from '@/features/groups/pages/GroupDetailPage';
 import PlaylistsPage from '@/features/playlists/pages/PlaylistsPage';
 import ContentPage from '@/features/content/pages/ContentPage';
 import AnalyticsPage from '@/features/analytics/pages/AnalyticsPage';
+import OrdersPage from '@/features/orders/pages/OrdersPage';
+import OrderDetailPage from '@/features/orders/pages/OrderDetailPage';
+import OrderLineDetailPage from '@/features/orders/pages/OrderLineDetailPage';
 
 export default function AppRoutes() {
   return (
@@ -23,20 +26,23 @@ export default function AppRoutes() {
         <Route element={<AppLayout />}>
           {/* Solo super_admin */}
           <Route element={<RoleGuard roles={['super_admin']} />}>
-            <Route path="/tenants" element={<TenantsPage />} />
+            <Route path="/networks" element={<NetworksPage />} />
           </Route>
 
           {/* super_admin + tenant_admin */}
+          <Route path="/orders" element={<OrdersPage />} />
+          <Route path="/orders/:id" element={<OrderDetailPage />} />
+          <Route path="/orders/:id/lines/:lineId" element={<OrderLineDetailPage />} />
           <Route path="/screens" element={<ScreensPage />} />
           <Route path="/screens/:id" element={<ScreenDetailPage />} />
           <Route path="/groups" element={<GroupsPage />} />
           <Route path="/groups/:id" element={<GroupDetailPage />} />
           <Route path="/playlists" element={<PlaylistsPage />} />
-          <Route path="/content" element={<ContentPage />} />
+          <Route path="/biblioteca" element={<ContentPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
 
           {/* Redirect raíz a pantallas */}
-          <Route path="/" element={<Navigate to="/screens" replace />} />
+          <Route path="/" element={<Navigate to="/orders" replace />} />
         </Route>
       </Route>
 

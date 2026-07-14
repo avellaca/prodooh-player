@@ -1,8 +1,10 @@
-import { useState } from "react";
-import { Loader2 } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Loader2, Search } from "lucide-react";
 
 import { useScreens } from "@/features/screens/hooks";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -28,31 +30,75 @@ export function AssignScreensDialog({
   currentScreenIds = [],
 }: AssignScreensDialogProps) {
   const { data: screens, isLoading } = useScreens();
-  const [selectedIds, setSelectedIds] = useState<string[]>(currentScreenIds);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(currentScreenIds));
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Filter screens by search query
+  const filteredScreens = useMemo(() => {
+    if (!screens) return [];
+    if (!searchQuery.trim()) return screens;
+    const q = searchQuery.toLowerCase();
+    return screens.filter((s) => {
+      const resolution = `${s.resolution_width}x${s.resolution_height}`;
+      return (
+        s.name.toLowerCase().includes(q) ||
+        s.venue_id.toLowerCase().includes(q) ||
+        resolution.includes(q) ||
+        s.orientation.toLowerCase().includes(q)
+      );
+    });
+  }, [screens, searchQuery]);
+
+  // Check if all filtered screens are selected
+  const allFilteredSelected = filteredScreens.length > 0 &&
+    filteredScreens.every((s) => selectedIds.has(s.id));
+  const someFilteredSelected = filteredScreens.some((s) => selectedIds.has(s.id));
 
   function handleToggle(screenId: string) {
-    setSelectedIds((prev) =>
-      prev.includes(screenId)
-        ? prev.filter((id) => id !== screenId)
-        : [...prev, screenId]
-    );
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(screenId)) {
+        next.delete(screenId);
+      } else {
+        next.add(screenId);
+      }
+      return next;
+    });
+  }
+
+  function handleToggleAll() {
+    if (allFilteredSelected) {
+      // Deselect all filtered
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filteredScreens.forEach((s) => next.delete(s.id));
+        return next;
+      });
+    } else {
+      // Select all filtered
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filteredScreens.forEach((s) => next.add(s.id));
+        return next;
+      });
+    }
   }
 
   function handleSubmit() {
-    onSubmit(selectedIds);
+    onSubmit(Array.from(selectedIds));
+  }
+
+  function handleOpenChange(isOpen: boolean) {
+    if (!isOpen) {
+      setSelectedIds(new Set(currentScreenIds));
+      setSearchQuery("");
+    }
+    onOpenChange(isOpen);
   }
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(isOpen) => {
-        if (!isOpen) {
-          setSelectedIds(currentScreenIds);
-        }
-        onOpenChange(isOpen);
-      }}
-    >
-      <DialogContent className="max-h-[80vh] overflow-hidden flex flex-col">
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="max-h-[80vh] overflow-hidden flex flex-col sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Asignar pantallas</DialogTitle>
           <DialogDescription>
@@ -60,32 +106,63 @@ export function AssignScreensDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto border rounded-md p-2 space-y-1">
+        {/* Search */}
+        <div className="relative">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Buscar por nombre, venue ID, resolución..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-8"
+          />
+        </div>
+
+        {/* Select all checkbox */}
+        {filteredScreens.length > 0 && (
+          <label className="flex items-center gap-3 px-3 py-1.5 border-b cursor-pointer">
+            <Checkbox
+              checked={allFilteredSelected ? true : someFilteredSelected ? "indeterminate" : false}
+              onCheckedChange={handleToggleAll}
+            />
+            <span className="text-sm font-medium">
+              {allFilteredSelected
+                ? `Deseleccionar todas (${filteredScreens.length})`
+                : `Seleccionar todas (${filteredScreens.length})`}
+            </span>
+          </label>
+        )}
+
+        {/* Screen list */}
+        <div className="flex-1 overflow-y-auto border rounded-md p-2 space-y-1 min-h-[200px] max-h-[400px]">
           {isLoading ? (
             <p className="text-sm text-muted-foreground p-2">
               Cargando pantallas...
             </p>
-          ) : screens && screens.length > 0 ? (
-            screens.map((screen) => (
+          ) : filteredScreens.length > 0 ? (
+            filteredScreens.map((screen) => (
               <label
                 key={screen.id}
                 className="flex items-center gap-3 rounded-md px-3 py-2 hover:bg-muted cursor-pointer"
               >
-                <input
-                  type="checkbox"
-                  checked={selectedIds.includes(screen.id)}
-                  onChange={() => handleToggle(screen.id)}
-                  className="h-4 w-4 rounded border-gray-300"
+                <Checkbox
+                  checked={selectedIds.has(screen.id)}
+                  onCheckedChange={() => handleToggle(screen.id)}
                 />
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <span className="text-sm font-medium">{screen.name}</span>
                   <span className="ml-2 text-xs text-muted-foreground">
-                    {screen.orientation} · {screen.resolution_width}×
-                    {screen.resolution_height}
+                    {screen.venue_id}
                   </span>
+                  <div className="text-xs text-muted-foreground">
+                    {screen.orientation} · {screen.resolution_width}×{screen.resolution_height}
+                  </div>
                 </div>
               </label>
             ))
+          ) : searchQuery ? (
+            <p className="text-sm text-muted-foreground p-2 text-center">
+              Sin resultados para "{searchQuery}"
+            </p>
           ) : (
             <p className="text-sm text-muted-foreground p-2">
               No hay pantallas disponibles.
@@ -96,17 +173,17 @@ export function AssignScreensDialog({
         <DialogFooter>
           <Button
             variant="secondary"
-            onClick={() => onOpenChange(false)}
+            onClick={() => handleOpenChange(false)}
             disabled={isSubmitting}
           >
             Cancelar
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={isSubmitting || selectedIds.length === 0}
+            disabled={isSubmitting || selectedIds.size === 0}
           >
             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Asignar ({selectedIds.length})
+            Asignar ({selectedIds.size})
           </Button>
         </DialogFooter>
       </DialogContent>

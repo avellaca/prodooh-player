@@ -21,10 +21,14 @@ trait BelongsToTenant
             }
 
             if ($user->isSuperAdmin()) {
-                // Super-admin: filter by tenant_id only when explicitly scoped via query param
+                // Super-admin: MUST have a tenant selected to see any data.
+                // This enforces that all data is always scoped to a network.
                 $tenantId = app()->bound('current_tenant_id') ? app('current_tenant_id') : null;
                 if ($tenantId) {
                     $builder->where($builder->getModel()->getTable() . '.tenant_id', $tenantId);
+                } else {
+                    // No tenant selected → return empty results (force network selection)
+                    $builder->whereRaw('1 = 0');
                 }
             } else {
                 // Tenant-admin: always filter by their own tenant

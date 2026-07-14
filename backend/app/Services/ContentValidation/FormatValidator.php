@@ -11,6 +11,7 @@ class FormatValidator implements ContentValidator
         'image/png',
         'image/webp',
         'video/mp4',
+        'video/quicktime',
     ];
 
     public function validate(UploadedFile $file): ValidationResult
@@ -19,7 +20,7 @@ class FormatValidator implements ContentValidator
 
         if (! in_array($mimeType, self::SUPPORTED_MIME_TYPES, true)) {
             return ValidationResult::fail(
-                "Unsupported format: {$mimeType}. Supported: JPEG, PNG, WebP, MP4.",
+                "Formato no soportado: {$mimeType}. Formatos permitidos: JPEG, PNG, WebP, MP4, MOV.",
                 ['mime_type' => $mimeType]
             );
         }

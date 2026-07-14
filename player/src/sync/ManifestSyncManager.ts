@@ -26,6 +26,8 @@ export interface ManifestItem {
   order_line_id?: string;
   creative_id?: string;
   playlist_item_id?: string;
+  /** Target (screen assignment) that originated this creative item. Added for traceability. */
+  target_id?: string;
 }
 
 /** Full manifest response from the backend */
@@ -33,6 +35,11 @@ export interface Manifest {
   version: string;
   generated_at: string;
   items: ManifestItem[];
+  screen?: {
+    resolution_width: number;
+    resolution_height: number;
+    venue_id: string;
+  };
 }
 
 /** Callback type for manifest update notifications */
@@ -167,33 +174,97 @@ export class ManifestSyncManager {
   }
 
   /**
+   * Map of backend asset_url → local blob URL for downloaded assets.
+   * Used by the renderer to resolve playback URLs.
+   */
+  private assetMap: Map<string, string> = new Map();
+
+  /** Map of backend asset_url → content type (e.g., 'video/mp4') */
+  private assetTypeMap: Map<string, string> = new Map();
+
+  /**
+   * Get the local blob URL for a given backend asset URL.
+   * Returns the blob URL if downloaded, or the original URL as fallback.
+   */
+  getLocalUrl(assetUrl: string): string {
+    return this.assetMap.get(assetUrl) ?? assetUrl;
+  }
+
+  /**
+   * Check if a backend asset URL points to a video file.
+   */
+  isVideo(assetUrl: string): boolean {
+    const type = this.assetTypeMap.get(assetUrl) ?? '';
+    return type.startsWith('video/');
+  }
+
+  /**
    * Download and validate assets for manifest items that have an asset_url.
+   * Deduplicates by asset_url — each unique URL is downloaded only once.
    * Returns true if all assets were downloaded and validated successfully.
    */
   private async downloadAndValidateAssets(items: ManifestItem[]): Promise<boolean> {
+    // Collect unique asset URLs with their expected checksums
+    const uniqueAssets = new Map<string, string | undefined>();
     for (const item of items) {
-      // Only items with asset_url need downloading (order_line_creative and playlist_item)
-      if (!item.asset_url) {
+      if (item.asset_url && !uniqueAssets.has(item.asset_url)) {
+        uniqueAssets.set(item.asset_url, item.checksum_sha256);
+      }
+    }
+
+    // Download each unique asset once
+    for (const [assetUrl, expectedChecksum] of uniqueAssets) {
+      // Skip if already downloaded in a previous sync
+      if (this.assetMap.has(assetUrl)) {
         continue;
       }
 
-      const itemId = item.creative_id ?? item.playlist_item_id ?? `pos-${item.position}`;
-      const localPath = await this.downloader.download(item.asset_url, itemId);
+      const itemId = assetUrl.split('/').pop() ?? assetUrl;
+      const result = await this.downloadWithType(assetUrl, itemId);
 
-      if (!localPath) {
+      if (!result) {
         return false;
       }
 
       // Validate checksum if provided
-      if (item.checksum_sha256) {
-        const computed = await this.downloader.computeChecksum(localPath);
-        if (computed !== item.checksum_sha256) {
+      if (expectedChecksum) {
+        const computed = await this.downloader.computeChecksum(result.blobUrl);
+        if (computed !== expectedChecksum) {
           return false;
         }
+      }
+
+      this.assetMap.set(assetUrl, result.blobUrl);
+      if (result.contentType) {
+        this.assetTypeMap.set(assetUrl, result.contentType);
       }
     }
 
     return true;
+  }
+
+  /**
+   * Download a file and return both the blob URL and the content-type header.
+   */
+  private async downloadWithType(url: string, _itemId: string): Promise<{ blobUrl: string; contentType: string | null } | null> {
+    try {
+      const headers: Record<string, string> = {};
+      const token = this.client.getToken();
+      if (token && url.includes('/api/device/content/')) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(url, { headers });
+      if (!response.ok) {
+        return null;
+      }
+      const contentType = response.headers.get('content-type');
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      return { blobUrl, contentType };
+    } catch {
+      return null;
+    }
   }
 
   /**

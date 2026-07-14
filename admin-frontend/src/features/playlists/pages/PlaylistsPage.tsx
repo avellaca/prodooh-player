@@ -33,6 +33,7 @@ import {
   useAssignPlaylist,
 } from "../hooks";
 import { useTenantContext } from "@/contexts/TenantContext";
+import { useAuth } from "@/hooks/use-auth";
 import type { Playlist } from "@/types/models";
 import type { CreatePlaylistInput } from "@/schemas/playlist.schema";
 
@@ -48,6 +49,9 @@ export default function PlaylistsPage() {
   const deletePlaylist = useDeletePlaylist();
   const assignPlaylist = useAssignPlaylist();
   const { selectedTenantId } = useTenantContext();
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'super_admin';
+  const needsTenant = isSuperAdmin && !selectedTenantId;
 
   // Fetch detail for editing (to get items)
   const { data: editingPlaylistDetail } = usePlaylist(editingPlaylist?.id);
@@ -171,7 +175,7 @@ export default function PlaylistsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Playlists</h1>
-        <Button onClick={() => setCreateDialogOpen(true)}>
+        <Button onClick={() => setCreateDialogOpen(true)} disabled={needsTenant} title={needsTenant ? "Selecciona un Network para crear playlists" : undefined}>
           <Plus className="mr-2 h-4 w-4" />
           Crear playlist
         </Button>

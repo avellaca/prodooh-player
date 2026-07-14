@@ -9,6 +9,7 @@ use App\Models\Tenant;
 use App\Services\CreativeSelector;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Collection;
 use Tests\TestCase;
 
 class CreativeSelectorTest extends TestCase
@@ -23,7 +24,13 @@ class CreativeSelectorTest extends TestCase
         $this->selector = new CreativeSelector();
     }
 
-    private function createOrderLineWithCreatives(array $creativesData): OrderLine
+    /**
+     * Helper: create a pool of Creative models with given weights.
+     *
+     * @param array $creativesData Each item: ['weight' => int]
+     * @return Collection<int, Creative>
+     */
+    private function createPool(array $creativesData): Collection
     {
         $tenant = Tenant::factory()->create();
         $order = Order::factory()->create([
@@ -35,34 +42,33 @@ class CreativeSelectorTest extends TestCase
             'status' => 'active',
         ]);
 
+        $creatives = collect();
         foreach ($creativesData as $data) {
-            Creative::factory()->create(array_merge([
+            $creative = Creative::factory()->create(array_merge([
                 'order_line_id' => $line->id,
             ], $data));
+            $creatives->push($creative);
         }
 
-        // Refresh to load the creatives relationship
-        $line->load('creatives');
-
-        return $line;
+        return $creatives;
     }
 
     public function test_single_creative_always_selected(): void
     {
         $today = Carbon::today()->toDateString();
 
-        $line = $this->createOrderLineWithCreatives([
-            ['weight' => 1, 'active_dates' => [$today]],
+        $pool = $this->createPool([
+            ['weight' => 1],
         ]);
 
-        $creative = $line->creatives->first();
+        $creative = $pool->first();
 
         // With a single creative, it should always be returned regardless of history
-        $result = $this->selector->select($line, []);
+        $result = $this->selector->select($pool, []);
         $this->assertEquals($creative->id, $result->id);
 
         // Even with the same creative in history, single pool means no restriction
-        $result = $this->selector->select($line, [$creative->id]);
+        $result = $this->selector->select($pool, [$creative->id]);
         $this->assertEquals($creative->id, $result->id);
     }
 
@@ -70,17 +76,16 @@ class CreativeSelectorTest extends TestCase
     {
         $today = Carbon::today()->toDateString();
 
-        $line = $this->createOrderLineWithCreatives([
-            ['weight' => 1, 'active_dates' => [$today]],
-            ['weight' => 1, 'active_dates' => [$today]],
+        $pool = $this->createPool([
+            ['weight' => 1],
+            ['weight' => 1],
         ]);
 
-        $creativeIds = $line->creatives->pluck('id')->toArray();
-        $firstId = $creativeIds[0];
+        $firstId = $pool->first()->id;
 
         // When the first creative was just played, it should not be selected again
         for ($i = 0; $i < 20; $i++) {
-            $result = $this->selector->select($line, [$firstId]);
+            $result = $this->selector->select($pool, [$firstId]);
             $this->assertNotEquals($firstId, $result->id,
                 "Should not repeat the most recent creative consecutively");
         }
@@ -90,20 +95,20 @@ class CreativeSelectorTest extends TestCase
     {
         $today = Carbon::today()->toDateString();
 
-        $line = $this->createOrderLineWithCreatives([
-            ['weight' => 1, 'active_dates' => [$today]],
-            ['weight' => 1, 'active_dates' => [$today]],
-            ['weight' => 1, 'active_dates' => [$today]],
+        $pool = $this->createPool([
+            ['weight' => 1],
+            ['weight' => 1],
+            ['weight' => 1],
         ]);
 
-        $creativeIds = $line->creatives->pluck('id')->toArray();
+        $creativeIds = $pool->pluck('id')->toArray();
 
         // Pool size 3, window = min(3-1, 5) = 2
         // If last 2 creatives were A, B → only C is eligible
         $recentHistory = [$creativeIds[0], $creativeIds[1]];
 
         for ($i = 0; $i < 20; $i++) {
-            $result = $this->selector->select($line, $recentHistory);
+            $result = $this->selector->select($pool, $recentHistory);
             $this->assertEquals($creativeIds[2], $result->id,
                 "With pool of 3 and window of 2, only the third creative should be selected");
         }
@@ -116,11 +121,11 @@ class CreativeSelectorTest extends TestCase
         // Create 8 creatives → window = min(8-1, 5) = 5
         $creativesData = [];
         for ($i = 0; $i < 8; $i++) {
-            $creativesData[] = ['weight' => 1, 'active_dates' => [$today]];
+            $creativesData[] = ['weight' => 1];
         }
 
-        $line = $this->createOrderLineWithCreatives($creativesData);
-        $creativeIds = $line->creatives->pluck('id')->toArray();
+        $pool = $this->createPool($creativesData);
+        $creativeIds = $pool->pluck('id')->toArray();
 
         // Recent history has 5 IDs (the window max)
         $recentHistory = array_slice($creativeIds, 0, 5);
@@ -129,30 +134,9 @@ class CreativeSelectorTest extends TestCase
         $eligibleIds = array_slice($creativeIds, 5, 3);
 
         for ($i = 0; $i < 30; $i++) {
-            $result = $this->selector->select($line, $recentHistory);
+            $result = $this->selector->select($pool, $recentHistory);
             $this->assertContains($result->id, $eligibleIds,
                 "With pool of 8 and window of 5, only creatives outside window should be eligible");
-        }
-    }
-
-    public function test_only_active_creatives_for_today_are_in_pool(): void
-    {
-        $today = Carbon::today()->toDateString();
-        $tomorrow = Carbon::tomorrow()->toDateString();
-
-        $line = $this->createOrderLineWithCreatives([
-            ['weight' => 1, 'active_dates' => [$today]],
-            ['weight' => 1, 'active_dates' => [$tomorrow]], // Not active today
-        ]);
-
-        $activeCreative = $line->creatives->first(function ($c) use ($today) {
-            return in_array($today, $c->active_dates);
-        });
-
-        // Only 1 creative active today, so it should always be selected
-        for ($i = 0; $i < 10; $i++) {
-            $result = $this->selector->select($line, []);
-            $this->assertEquals($activeCreative->id, $result->id);
         }
     }
 
@@ -161,20 +145,19 @@ class CreativeSelectorTest extends TestCase
         $today = Carbon::today()->toDateString();
 
         // Create one creative with high weight and one with low weight
-        $line = $this->createOrderLineWithCreatives([
-            ['weight' => 100, 'active_dates' => [$today]],
-            ['weight' => 1, 'active_dates' => [$today]],
+        $pool = $this->createPool([
+            ['weight' => 100],
+            ['weight' => 1],
         ]);
 
-        $creatives = $line->creatives->sortByDesc('weight');
-        $heavyId = $creatives->first()->id;
+        $heavyId = $pool->sortByDesc('weight')->first()->id;
 
         // Run many selections with empty history — the heavy creative should dominate
         $heavyCount = 0;
         $iterations = 200;
 
         for ($i = 0; $i < $iterations; $i++) {
-            $result = $this->selector->select($line, []);
+            $result = $this->selector->select($pool, []);
             if ($result->id === $heavyId) {
                 $heavyCount++;
             }
@@ -190,18 +173,15 @@ class CreativeSelectorTest extends TestCase
         $today = Carbon::today()->toDateString();
 
         // Pool of 2, window = min(2-1, 5) = 1
-        // If history contains both IDs (more than window), only first one is excluded
-        // But let's test the edge case where history is artificially large
-        $line = $this->createOrderLineWithCreatives([
-            ['weight' => 1, 'active_dates' => [$today]],
-            ['weight' => 1, 'active_dates' => [$today]],
+        $pool = $this->createPool([
+            ['weight' => 1],
+            ['weight' => 1],
         ]);
 
-        $creativeIds = $line->creatives->pluck('id')->toArray();
+        $creativeIds = $pool->pluck('id')->toArray();
 
         // Even with both in history, window=1 means only first entry is excluded
-        // This test validates normal behavior with pool of 2
-        $result = $this->selector->select($line, $creativeIds);
+        $result = $this->selector->select($pool, $creativeIds);
         $this->assertContains($result->id, $creativeIds);
     }
 
@@ -209,16 +189,36 @@ class CreativeSelectorTest extends TestCase
     {
         $today = Carbon::today()->toDateString();
 
-        $line = $this->createOrderLineWithCreatives([
-            ['weight' => 1, 'active_dates' => [$today]],
-            ['weight' => 1, 'active_dates' => [$today]],
-            ['weight' => 1, 'active_dates' => [$today]],
+        $pool = $this->createPool([
+            ['weight' => 1],
+            ['weight' => 1],
+            ['weight' => 1],
         ]);
 
-        $creativeIds = $line->creatives->pluck('id')->toArray();
+        $creativeIds = $pool->pluck('id')->toArray();
 
         // With empty history, any creative from the pool is valid
-        $result = $this->selector->select($line, []);
+        $result = $this->selector->select($pool, []);
         $this->assertContains($result->id, $creativeIds);
+    }
+
+    public function test_all_in_history_but_pool_larger_than_window_still_selects(): void
+    {
+        $today = Carbon::today()->toDateString();
+
+        // Pool of 6, window = min(6-1, 5) = 5
+        $creativesData = [];
+        for ($i = 0; $i < 6; $i++) {
+            $creativesData[] = ['weight' => 1];
+        }
+
+        $pool = $this->createPool($creativesData);
+        $creativeIds = $pool->pluck('id')->toArray();
+
+        // History contains all 6 IDs but window is only 5
+        // So the 6th creative (not in the window of 5 most recent) should be eligible
+        $result = $this->selector->select($pool, $creativeIds);
+        $this->assertEquals($creativeIds[5], $result->id,
+            "When history is full but pool > window, only the creative outside the window should be selected");
     }
 }

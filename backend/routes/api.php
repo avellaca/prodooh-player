@@ -1,10 +1,17 @@
 <?php
 
 use App\Http\Controllers\Admin\AdminAuthController;
+use App\Http\Controllers\Admin\BulkCreativeController;
 use App\Http\Controllers\Admin\ContentController;
 use App\Http\Controllers\Admin\ContentPreviewController;
+use App\Http\Controllers\Admin\CreativeController;
+use App\Http\Controllers\Admin\OrderController;
+use App\Http\Controllers\Admin\OrderLineController;
+use App\Http\Controllers\Admin\OrderLineTargetController;
+use App\Http\Controllers\Admin\ResolutionController;
 use App\Http\Controllers\Admin\PlaybackAnalyticsController;
 use App\Http\Controllers\Admin\PlaylistController;
+use App\Http\Controllers\Admin\ScreenCommandController;
 use App\Http\Controllers\Admin\ScreenController;
 use App\Http\Controllers\Admin\ScreenGroupController;
 use App\Http\Controllers\Admin\ScreenshotViewController;
@@ -86,6 +93,9 @@ Route::prefix('admin')->group(function () {
     // Public admin routes (login)
     Route::post('/login', [AdminAuthController::class, 'login'])->name('admin.login');
 
+    // Public content file serving (used by <img> tags without Bearer token)
+    Route::get('/content/{id}/preview/file', [ContentController::class, 'serveFile'])->name('admin.content.preview.file');
+
     // Protected admin routes (Sanctum auth + tenant scope)
     Route::middleware(['auth:sanctum', TenantScopeMiddleware::class])->group(function () {
         Route::post('/logout', [AdminAuthController::class, 'logout'])->name('admin.logout');
@@ -105,6 +115,42 @@ Route::prefix('admin')->group(function () {
 
         // Routes accessible by both super-admin and tenant-admin
         Route::middleware('role:super_admin,tenant_admin')->group(function () {
+            // Order management
+            Route::get('/orders', [OrderController::class, 'index'])->name('admin.orders.index');
+            Route::post('/orders', [OrderController::class, 'store'])->name('admin.orders.store');
+            Route::get('/orders/{id}', [OrderController::class, 'show'])->name('admin.orders.show');
+            Route::put('/orders/{id}', [OrderController::class, 'update'])->name('admin.orders.update');
+            Route::delete('/orders/{id}', [OrderController::class, 'destroy'])->name('admin.orders.destroy');
+
+            // Order Lines (nested under orders)
+            Route::get('/orders/{orderId}/order-lines', [OrderLineController::class, 'index'])->name('admin.order-lines.index');
+            Route::post('/orders/{orderId}/order-lines', [OrderLineController::class, 'store'])->name('admin.order-lines.store');
+            Route::get('/order-lines/{id}', [OrderLineController::class, 'show'])->name('admin.order-lines.show');
+            Route::put('/order-lines/{id}', [OrderLineController::class, 'update'])->name('admin.order-lines.update');
+            Route::delete('/order-lines/{id}', [OrderLineController::class, 'destroy'])->name('admin.order-lines.destroy');
+
+            // Creatives by target (new target-based endpoints)
+            Route::get('/order-line-targets/{targetId}/creatives', [CreativeController::class, 'index'])->name('admin.creatives.index');
+            Route::post('/order-line-targets/{targetId}/creatives', [CreativeController::class, 'store'])->name('admin.creatives.store');
+            Route::put('/creatives/{id}', [CreativeController::class, 'update'])->name('admin.creatives.update');
+            Route::delete('/creatives/{id}', [CreativeController::class, 'destroy'])->name('admin.creatives.destroy');
+
+            // Order line targets (assign/unassign screens/groups)
+            Route::post('/order-lines/{orderLineId}/targets', [OrderLineTargetController::class, 'store'])->name('admin.order-line-targets.store');
+            Route::delete('/order-line-targets/{id}', [OrderLineTargetController::class, 'destroy'])->name('admin.order-line-targets.destroy');
+
+            // Resolutions (screens grouped by resolution for an order line)
+            Route::get('/order-lines/{orderLineId}/resolutions', [ResolutionController::class, 'index'])->name('admin.resolutions.index');
+
+            // Delivery progress
+            Route::get('/orders/{orderId}/delivery-progress', [\App\Http\Controllers\Admin\DeliveryProgressController::class, 'show'])->name('admin.orders.delivery-progress');
+
+            // Bulk creative assignment by resolution
+            Route::post('/order-lines/{orderLineId}/creatives/bulk-by-resolution', [BulkCreativeController::class, 'bulkByResolution'])->name('admin.creatives.bulkByResolution');
+
+            // Screen commands (Modo Testigo)
+            Route::post('/screens/{id}/commands', [ScreenCommandController::class, 'store'])->name('admin.screens.commands.store');
+
             // Screen management
             Route::get('/screens', [ScreenController::class, 'index'])->name('admin.screens.index');
             Route::post('/screens', [ScreenController::class, 'store'])->name('admin.screens.store');
@@ -120,6 +166,7 @@ Route::prefix('admin')->group(function () {
             Route::put('/groups/{id}', [ScreenGroupController::class, 'update'])->name('admin.groups.update');
             Route::delete('/groups/{id}', [ScreenGroupController::class, 'destroy'])->name('admin.groups.destroy');
             Route::post('/groups/{id}/screens', [ScreenGroupController::class, 'assignScreens'])->name('admin.groups.assignScreens');
+            Route::post('/groups/{id}/apply-schedule', [ScreenGroupController::class, 'applySchedule'])->name('admin.groups.applySchedule');
 
             // Playlist management
             Route::get('/playlists', [PlaylistController::class, 'index'])->name('admin.playlists.index');
@@ -135,7 +182,6 @@ Route::prefix('admin')->group(function () {
             Route::delete('/content/{id}', [ContentController::class, 'destroy'])->name('admin.content.destroy');
             Route::put('/content/{id}/rotate', [ContentController::class, 'rotate'])->name('admin.content.rotate');
             Route::get('/content/{id}/preview', [ContentPreviewController::class, 'show'])->name('admin.content.preview');
-            Route::get('/content/{id}/preview/file', [ContentController::class, 'serveFile'])->name('admin.content.preview.file');
 
             // Playlist item preview (supports URL items)
             Route::get('/playlist-items/{id}/preview', [ContentPreviewController::class, 'showPlaylistItem'])->name('admin.playlist-items.preview');
@@ -145,6 +191,12 @@ Route::prefix('admin')->group(function () {
 
             // Screenshot viewing
             Route::get('/screens/{id}/screenshots', [ScreenshotViewController::class, 'index'])->name('admin.screens.screenshots');
+
+            // Screen manifest
+            Route::get('/screens/{id}/manifest', [ScreenController::class, 'manifest'])->name('admin.screens.manifest');
+
+            // Screen active order lines
+            Route::get('/screens/{id}/active-order-lines', [ScreenController::class, 'activeOrderLines'])->name('admin.screens.activeOrderLines');
         });
     });
 });

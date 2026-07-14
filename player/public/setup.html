@@ -103,6 +103,12 @@
     <label for="device_token">Device Token (8 caracteres)</label>
     <input type="text" id="device_token" value="" placeholder="Ej: KH4VN7XB" maxlength="8" style="text-transform: uppercase; letter-spacing: 2px; font-size: 1.2rem; text-align: center;" />
 
+    <label for="prodooh_api_key">ProDooh API Key (opcional)</label>
+    <input type="text" id="prodooh_api_key" value="sandbox-api-key" placeholder="UUID del API key" />
+
+    <label for="prodooh_network_id">ProDooh Network ID (opcional)</label>
+    <input type="text" id="prodooh_network_id" value="sandbox-network" placeholder="Ej: OWCFM6RSGY" />
+
     <button onclick="saveConfig()">💾 Guardar y Lanzar Player</button>
 
     <div id="status" class="status"></div>
@@ -184,6 +190,8 @@
           { key: 'venue_id', value: venueId, updated_at: now },
           { key: 'device_token', value: deviceToken, updated_at: now },
           { key: 'jwt_token', value: authData.access_token || authData.token || '', updated_at: now },
+          { key: 'prodooh_api_key', value: document.getElementById('prodooh_api_key')?.value || '', updated_at: now },
+          { key: 'prodooh_network_id', value: document.getElementById('prodooh_network_id')?.value || '', updated_at: now },
         ];
 
         // Clear any cached loop_config from previous sessions (avoid stale/corrupt data)

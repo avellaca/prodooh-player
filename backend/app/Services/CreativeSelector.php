@@ -3,23 +3,22 @@
 namespace App\Services;
 
 use App\Models\Creative;
-use App\Models\OrderLine;
 use Illuminate\Support\Collection;
 
 class CreativeSelector implements CreativeSelectorInterface
 {
     /**
-     * Selects the creative for a turn of the given order line.
-     * Respects weights and anti-repetition rule (window of min(pool_size-1, 5)).
+     * Selecciona un creativo del pool dado con anti-repetición.
      *
-     * @param OrderLine $line
-     * @param array<string> $recentHistory Array of recent creative IDs (most recent first)
+     * Respects weights and anti-repetition rule (window of min(pool_size-1, 5)).
+     * The pool is expected to already be filtered to valid/active creatives.
+     *
+     * @param Collection<int, Creative> $pool Pool de creativos activos
+     * @param array<string> $recentHistory IDs recientes (más reciente primero)
      * @return Creative
      */
-    public function select(OrderLine $line, array $recentHistory): Creative
+    public function select(Collection $pool, array $recentHistory): Creative
     {
-        $pool = $this->getActiveCreativesForToday($line);
-
         // Pool of 1 creative: no anti-repetition restriction
         if ($pool->count() === 1) {
             return $pool->first();
@@ -42,27 +41,6 @@ class CreativeSelector implements CreativeSelectorInterface
         }
 
         return $this->weightedRandomSelect($eligible);
-    }
-
-    /**
-     * Get the pool of active creatives for today (filter by active_dates containing today's date).
-     *
-     * @param OrderLine $line
-     * @return Collection<int, Creative>
-     */
-    protected function getActiveCreativesForToday(OrderLine $line): Collection
-    {
-        $today = now()->toDateString();
-
-        return $line->creatives->filter(function (Creative $creative) use ($today) {
-            $activeDates = $creative->active_dates;
-
-            if (is_null($activeDates) || empty($activeDates)) {
-                return false;
-            }
-
-            return in_array($today, $activeDates);
-        })->values();
     }
 
     /**

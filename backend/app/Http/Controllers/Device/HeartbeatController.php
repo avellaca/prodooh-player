@@ -25,12 +25,12 @@ class HeartbeatController extends Controller
             'current_content' => 'nullable|array',
             'current_content.id' => 'required_with:current_content|string',
             'current_content.source' => 'required_with:current_content|string|in:prodooh,gam,url,playlist',
-            'storage' => 'required|array',
-            'storage.total_mb' => 'required|integer|min:0',
-            'storage.available_mb' => 'required|integer|min:0',
-            'storage.percent_used' => 'required|integer|min:0|max:100',
-            'uptime_seconds' => 'required|integer|min:0',
-            'playlist_version' => 'required|string',
+            'storage' => 'nullable|array',
+            'storage.total_mb' => 'required_with:storage|integer|min:0',
+            'storage.available_mb' => 'required_with:storage|integer|min:0',
+            'storage.percent_used' => 'required_with:storage|integer|min:0|max:100',
+            'uptime_seconds' => 'nullable|integer|min:0',
+            'playlist_version' => 'nullable|string',
         ]);
 
         $screenId = $request->attributes->get('screen_id');
@@ -45,12 +45,20 @@ class HeartbeatController extends Controller
         }
 
         // Update screen heartbeat data
-        $screen->update([
+        $updateData = [
             'last_heartbeat' => Carbon::now(),
             'status' => 'online',
-            'last_storage_status' => $request->input('storage'),
-            'manifest_version' => $request->input('playlist_version'),
-        ]);
+        ];
+
+        if ($request->input('storage')) {
+            $updateData['last_storage_status'] = $request->input('storage');
+        }
+
+        if ($request->input('playlist_version')) {
+            $updateData['manifest_version'] = $request->input('playlist_version');
+        }
+
+        $screen->update($updateData);
 
         // Fetch pending commands and mark them as delivered
         $pendingCommands = DeviceCommand::where('screen_id', $screenId)

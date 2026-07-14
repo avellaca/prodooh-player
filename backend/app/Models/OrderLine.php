@@ -19,6 +19,7 @@ class OrderLine extends Model
         'priority_tier',
         'starts_at',
         'ends_at',
+        'active_dates',
         'target_spots',
         'delivery_pace',
         'share_weight',
@@ -32,6 +33,7 @@ class OrderLine extends Model
             'starts_at' => 'date',
             'ends_at' => 'date',
             'time_window' => 'array',
+            'active_dates' => 'array',
         ];
     }
 
@@ -42,7 +44,14 @@ class OrderLine extends Model
 
     public function creatives()
     {
-        return $this->hasMany(Creative::class);
+        return $this->hasManyThrough(
+            Creative::class,
+            OrderLineTarget::class,
+            'order_line_id',        // FK on order_line_targets
+            'order_line_target_id', // FK on creatives
+            'id',                   // local key on order_lines
+            'id'                    // local key on order_line_targets
+        );
     }
 
     public function targets()

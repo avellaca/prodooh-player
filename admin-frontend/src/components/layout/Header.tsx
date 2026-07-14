@@ -15,19 +15,21 @@ import {
 import { cn } from '@/lib/utils';
 
 const superAdminLinks = [
-  { to: '/tenants', label: 'Tenants' },
+  { to: '/networks', label: 'Networks' },
+  { to: '/orders', label: 'Pedidos' },
   { to: '/screens', label: 'Pantallas' },
   { to: '/groups', label: 'Grupos' },
   { to: '/playlists', label: 'Playlists' },
-  { to: '/content', label: 'Contenido' },
+  { to: '/biblioteca', label: 'Biblioteca' },
   { to: '/analytics', label: 'Analytics' },
 ];
 
 const tenantAdminLinks = [
+  { to: '/orders', label: 'Pedidos' },
   { to: '/screens', label: 'Pantallas' },
   { to: '/groups', label: 'Grupos' },
   { to: '/playlists', label: 'Playlists' },
-  { to: '/content', label: 'Contenido' },
+  { to: '/biblioteca', label: 'Biblioteca' },
   { to: '/analytics', label: 'Analytics' },
 ];
 
@@ -76,7 +78,7 @@ export default function Header() {
               onValueChange={(value) => setSelectedTenantId(value || null)}
             >
               <SelectTrigger className="w-[180px] bg-white/10 border-white/20 text-white text-sm">
-                <SelectValue placeholder="Seleccionar tenant" />
+                <SelectValue placeholder="Seleccionar network" />
               </SelectTrigger>
               <SelectContent>
                 {tenants?.map((tenant) => (

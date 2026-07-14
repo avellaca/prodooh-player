@@ -27,6 +27,9 @@ class PriorityEngine implements PriorityEngineInterface
 
     private BresenhamInterleaverInterface $interleaver;
 
+    /** The screen currently being recalculated (used by calculateDailyBudget per-screen) */
+    private ?string $currentScreenId = null;
+
     public function __construct(BresenhamInterleaverInterface $interleaver)
     {
         $this->interleaver = $interleaver;
@@ -39,7 +42,8 @@ class PriorityEngine implements PriorityEngineInterface
      */
     public function recalculate(string $screenId, bool $isIntraDay = false): array
     {
-        $screen = Screen::with(['screenGroup.tenant', 'impressions'])->findOrFail($screenId);
+        $this->currentScreenId = $screenId;
+        $screen = Screen::withoutGlobalScopes()->with(['screenGroup.tenant', 'impressions'])->findOrFail($screenId);
 
         // Step 1: Calculate capacity
         $totalDailySpots = $this->calculateTotalDailySpots($screen);
@@ -152,10 +156,10 @@ class PriorityEngine implements PriorityEngineInterface
             ];
         }
 
-        // Calculate daily_budget for each line
+        // Calculate daily_budget for each line (per-screen)
         $lineData = [];
         foreach ($lines as $line) {
-            $budget = $this->calculateDailyBudget($line);
+            $budget = $this->calculateDailyBudget($line, $this->currentScreenId);
             $lineData[] = [
                 'line' => $line,
                 'budget' => $budget, // null means unlimited
@@ -189,8 +193,9 @@ class PriorityEngine implements PriorityEngineInterface
                     'remaining' => $remainingCapacity - $allocated,
                 ];
             } else {
-                // Over-capacity: proportional by share_weight
-                return $this->allocateProportional($fixedLines, $remainingCapacity);
+                // Over-capacity: allocate respecting individual budgets as caps
+                // Lines with pace=asap can absorb excess; uniform lines cap at their budget
+                return $this->allocateWithCaps($fixedLines, $remainingCapacity);
             }
         }
 
@@ -307,6 +312,64 @@ class PriorityEngine implements PriorityEngineInterface
     }
 
     /**
+     * Allocate spots respecting each line's budget as a cap.
+     *
+     * Lines with pace=uniform get at most their daily budget.
+     * Lines with pace=asap can absorb any remaining excess.
+     * This prevents uniform lines from getting more than contracted while
+     * allowing ASAP lines to fill remaining capacity.
+     */
+    private function allocateWithCaps(array $lineData, int $capacity): array
+    {
+        $allocations = [];
+        $remaining = $capacity;
+
+        // First pass: give each uniform line its budget (capped)
+        $asapLines = [];
+        $allocated = 0;
+
+        foreach ($lineData as $data) {
+            if ($data['line']->delivery_pace === 'asap') {
+                $asapLines[] = $data;
+            } else {
+                // Uniform: cap at budget
+                $count = min($data['budget'], $remaining);
+                $allocations[] = [
+                    'order_line_id' => $data['line']->id,
+                    'count' => $count,
+                ];
+                $remaining -= $count;
+                $allocated += $count;
+            }
+        }
+
+        // Second pass: ASAP lines share the remaining capacity
+        if (!empty($asapLines) && $remaining > 0) {
+            $totalAsapWeight = array_sum(array_column($asapLines, 'share_weight'));
+            foreach ($asapLines as $data) {
+                $share = $totalAsapWeight > 0
+                    ? (int) floor($remaining * $data['share_weight'] / $totalAsapWeight)
+                    : (int) floor($remaining / count($asapLines));
+                // Cap at their budget too (asap budget = remaining target)
+                $count = min($share, $data['budget']);
+                $allocations[] = [
+                    'order_line_id' => $data['line']->id,
+                    'count' => $count,
+                ];
+                $allocated += $count;
+            }
+        } elseif (empty($asapLines) && $remaining > 0) {
+            // No ASAP lines — remaining capacity goes unused by order lines (to SSP/playlist)
+            // Don't redistribute to uniform lines beyond their budget
+        }
+
+        return [
+            'allocations' => $allocations,
+            'remaining' => $capacity - $allocated,
+        ];
+    }
+
+    /**
      * Calculate total daily spots for a screen.
      *
      * Uses the hierarchy for duration (group > tenant > 10s default)
@@ -323,19 +386,21 @@ class PriorityEngine implements PriorityEngineInterface
     }
 
     /**
-     * Calculate daily budget for an order line.
+     * Calculate daily budget for an order line on a specific screen.
      *
-     * - uniform: ceil((target - delivered) / remaining_days)
-     * - asap: target - delivered
+     * - uniform: ceil((target - delivered_on_screen) / remaining_days)
+     * - asap: target - delivered_on_screen
      * - null target: null (unlimited, bounded by share_weight)
+     *
+     * When screenId is null, uses total impressions across all screens (for API display).
      */
-    public function calculateDailyBudget(OrderLine $line): ?int
+    public function calculateDailyBudget(OrderLine $line, ?string $screenId = null): ?int
     {
         if (is_null($line->target_spots)) {
             return null;
         }
 
-        $delivered = $this->getDeliveredImpressions($line);
+        $delivered = $this->getDeliveredImpressions($line, $screenId);
         $remaining = $line->target_spots - $delivered;
 
         if ($remaining <= 0) {
@@ -378,9 +443,12 @@ class PriorityEngine implements PriorityEngineInterface
         $groupId = $screen->group_id;
 
         // Get order lines that target this screen (directly or via group)
+        // Use withoutGlobalScopes on Order subquery to bypass tenant scoping
+        // (PriorityEngine is a system-level service that operates across tenants)
         $query = OrderLine::query()
             ->whereHas('order', function ($q) use ($today) {
-                $q->where('status', 'active')
+                $q->withoutGlobalScopes()
+                    ->where('status', 'active')
                     ->where('starts_at', '<=', $today)
                     ->where('ends_at', '>=', $today);
             })
@@ -396,32 +464,32 @@ class PriorityEngine implements PriorityEngineInterface
                         }
                     });
                 });
-            })
-            ->with(['creatives', 'impressions']);
+            });
 
         $lines = $query->get();
 
-        // Post-filter: target not exhausted, and at least one creative active today
-        return $lines->filter(function (OrderLine $line) use ($today) {
-            // Check target exhaustion
+        // Post-filter: per-screen exhaustion check and active_dates
+        return $lines->filter(function (OrderLine $line) use ($today, $screenId) {
+            // Check per-screen target exhaustion
             if (!is_null($line->target_spots)) {
-                $delivered = $line->impressions
+                // Count impressions for THIS screen only
+                $deliveredOnScreen = Impression::where('order_line_id', $line->id)
+                    ->where('screen_id', $screenId)
                     ->where('result', 'success')
                     ->count();
 
-                if ($delivered >= $line->target_spots) {
+                if ($deliveredOnScreen >= $line->target_spots) {
                     return false;
                 }
             }
 
-            // Check at least one creative has active_dates including today
-            $hasActiveCreative = $line->creatives->contains(function ($creative) use ($today) {
-                $activeDates = $creative->active_dates ?? [];
+            // Check OrderLine active_dates: null/empty means active every day in range
+            $activeDates = $line->active_dates;
+            if (is_null($activeDates) || empty($activeDates)) {
+                return true;
+            }
 
-                return in_array($today, $activeDates);
-            });
-
-            return $hasActiveCreative;
+            return in_array($today, $activeDates);
         })->values();
     }
 
@@ -503,13 +571,32 @@ class PriorityEngine implements PriorityEngineInterface
 
         $date = $date ?? Carbon::today();
         $dayOfWeek = strtolower($date->format('l')); // e.g., 'monday'
+        $dayNumber = (int) $date->format('N'); // 1=Monday, 7=Sunday
 
         $totalSeconds = 0;
 
         foreach ($schedule as $rule) {
-            $days = array_map('strtolower', $rule['days'] ?? []);
+            $days = $rule['days'] ?? [];
 
-            if (!in_array($dayOfWeek, $days)) {
+            // Support both numeric days (1-7 or 0-6) and string day names
+            $matchesDay = false;
+            foreach ($days as $day) {
+                if (is_int($day) || is_numeric($day)) {
+                    $d = (int) $day;
+                    // Support both conventions: 1-7 (ISO) and 0-6 (JS where 0=Sunday)
+                    if ($d === $dayNumber || ($d === 0 && $dayNumber === 7)) {
+                        $matchesDay = true;
+                        break;
+                    }
+                } else {
+                    if (strtolower((string) $day) === $dayOfWeek) {
+                        $matchesDay = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!$matchesDay) {
                 continue;
             }
 
@@ -527,13 +614,19 @@ class PriorityEngine implements PriorityEngineInterface
     }
 
     /**
-     * Get the count of successful impressions for an order line (cumulative total).
+     * Get the count of successful impressions for an order line.
+     * When screenId is provided, counts only impressions on that screen.
      */
-    public function getDeliveredImpressions(OrderLine $line): int
+    public function getDeliveredImpressions(OrderLine $line, ?string $screenId = null): int
     {
-        return Impression::where('order_line_id', $line->id)
-            ->where('result', 'success')
-            ->count();
+        $query = Impression::where('order_line_id', $line->id)
+            ->where('result', 'success');
+
+        if ($screenId) {
+            $query->where('screen_id', $screenId);
+        }
+
+        return $query->count();
     }
 
     /**
