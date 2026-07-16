@@ -167,47 +167,7 @@ export function GroupScheduleEditor({ groupId, schedule, screens }: GroupSchedul
           </Button>
         </div>
 
-        {/* Screen inheritance status */}
-        {screens.length > 0 && (
-          <div className="space-y-3 border-t pt-4">
-            <h4 className="text-sm font-medium">Estado de pantallas</h4>
-
-            {screensInheriting.length > 0 && (
-              <div className="space-y-1">
-                <p className="text-xs font-medium text-muted-foreground">
-                  Usan horario del grupo ({screensInheriting.length})
-                </p>
-                {screensInheriting.map((screen) => (
-                  <div
-                    key={screen.id}
-                    className="flex items-center gap-2 text-sm"
-                  >
-                    <Monitor className="h-3.5 w-3.5 text-green-600" />
-                    <span>{screen.name}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {screensWithOverride.length > 0 && (
-              <div className="space-y-1">
-                <p className="text-xs font-medium text-muted-foreground">
-                  Tienen horario propio (override) ({screensWithOverride.length})
-                </p>
-                {screensWithOverride.map((screen) => (
-                  <div
-                    key={screen.id}
-                    className="flex items-center gap-2 text-sm"
-                  >
-                    <Monitor className="h-3.5 w-3.5 text-amber-500" />
-                    <span>{screen.name}</span>
-                    <span className="text-xs text-muted-foreground">(override)</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+        {/* Screen inheritance status — removed: not providing relevant info */}
       </CardContent>
 
       {/* Confirm dialog for "Aplicar a todas" */}

@@ -28,7 +28,7 @@ class TenantScopeMiddleware
             ], 401);
         }
 
-        if ($user->isTenantAdmin()) {
+        if ($user->isTenantAdmin() || $user->isTrafficker()) {
             // Bind the current tenant ID into the container for the request lifecycle.
             app()->instance('current_tenant_id', $user->tenant_id);
         }

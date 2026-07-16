@@ -30,9 +30,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 import { useOrders, useCreateOrder, useUpdateOrder, useDeleteOrder } from "../hooks";
-import { orderSchema, type OrderFormValues } from "../schemas";
+import { orderCreateSchema, type OrderCreateFormValues } from "../schemas";
 import { useAuth } from "@/hooks/use-auth";
 import { useTenantContext } from "@/contexts/TenantContext";
+import { AdvertiserAutocomplete } from "../components/AdvertiserAutocomplete";
 import type { Order } from "../types";
 
 // ─── Status badge config ─────────────────────────────────────────────────────
@@ -78,17 +79,17 @@ export default function OrdersPage() {
     {
       accessorKey: "advertiser_name",
       header: "Anunciante",
-      cell: ({ row }) => row.original.advertiser_name ?? "—",
+      cell: ({ row }) => row.original.advertiser?.name ?? row.original.advertiser_name ?? "—",
     },
     {
       accessorKey: "starts_at",
       header: "Inicio",
-      cell: ({ row }) => format(new Date(row.original.starts_at), "dd/MM/yyyy"),
+      cell: ({ row }) => row.original.starts_at ? format(new Date(row.original.starts_at), "dd/MM/yyyy") : "—",
     },
     {
       accessorKey: "ends_at",
       header: "Fin",
-      cell: ({ row }) => format(new Date(row.original.ends_at), "dd/MM/yyyy"),
+      cell: ({ row }) => row.original.ends_at ? format(new Date(row.original.ends_at), "dd/MM/yyyy") : "—",
     },
     {
       accessorKey: "status",
@@ -108,7 +109,7 @@ export default function OrdersPage() {
       enableSorting: false,
       cell: ({ row }) => {
         const order = row.original;
-        const canToggle = order.status === "active" || order.status === "paused";
+        const canToggle = user?.role !== 'trafficker' && (order.status === "active" || order.status === "paused");
         return (
           <div className="flex items-center gap-1">
             {canToggle && (
@@ -145,7 +146,10 @@ export default function OrdersPage() {
               <DropdownMenuContent align="end">
                 <DropdownMenuItem
                   className="text-destructive"
-                  onClick={() => setDeletingOrder(order)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDeletingOrder(order);
+                  }}
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
                   Eliminar
@@ -160,15 +164,13 @@ export default function OrdersPage() {
 
   // ─── Create handler ──────────────────────────────────────────────────────
 
-  function handleCreate(data: OrderFormValues) {
+  function handleCreate(data: OrderCreateFormValues & { advertiser_id?: string }) {
     createOrder.mutate(
       {
         name: data.name,
         advertiser_name: data.advertiser_name ?? null,
-        starts_at: data.starts_at,
-        ends_at: data.ends_at,
-        status: data.status,
-      },
+        advertiser_id: data.advertiser_id ?? undefined,
+      } as any,
       { onSuccess: () => setCreateDialogOpen(false) },
     );
   }
@@ -262,7 +264,7 @@ export default function OrdersPage() {
 // ─── Inline Order Form (temporary — will be replaced by OrderForm component) ─
 
 interface OrderInlineFormProps {
-  onSubmit: (data: OrderFormValues) => void;
+  onSubmit: (data: OrderCreateFormValues) => void;
   isSubmitting: boolean;
   onCancel: () => void;
 }
@@ -271,20 +273,28 @@ function OrderInlineForm({ onSubmit, isSubmitting, onCancel }: OrderInlineFormPr
   const {
     register,
     handleSubmit,
+    setValue,
+    watch,
     formState: { errors },
-  } = useForm<OrderFormValues>({
-    resolver: zodResolver(orderSchema),
+  } = useForm<OrderCreateFormValues>({
+    resolver: zodResolver(orderCreateSchema),
     defaultValues: {
       name: "",
       advertiser_name: "",
-      starts_at: "",
-      ends_at: "",
-      status: "draft",
     },
   });
 
+  const [advertiserConfirmed, setAdvertiserConfirmed] = useState(false);
+  const [advertiserId, setAdvertiserId] = useState<string | undefined>();
+
+  const advertiserValue = watch("advertiser_name");
+  const canSubmit = advertiserConfirmed;
+
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form onSubmit={handleSubmit((data) => {
+      if (!canSubmit) return;
+      onSubmit({ ...data, advertiser_id: advertiserId } as any);
+    })} className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="name">Nombre *</Label>
         <Input id="name" {...register("name")} placeholder="Nombre del pedido" />
@@ -294,35 +304,26 @@ function OrderInlineForm({ onSubmit, isSubmitting, onCancel }: OrderInlineFormPr
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="advertiser_name">Anunciante</Label>
-        <Input id="advertiser_name" {...register("advertiser_name")} placeholder="Nombre del anunciante" />
+        <Label htmlFor="advertiser_name">Anunciante *</Label>
+        <AdvertiserAutocomplete
+          value=""
+          onChange={(val, confirmed, advId) => {
+            setValue("advertiser_name", val);
+            setAdvertiserConfirmed(confirmed);
+            setAdvertiserId(advId);
+          }}
+          disabled={isSubmitting}
+        />
         {errors.advertiser_name && (
           <p className="text-sm text-destructive">{errors.advertiser_name.message}</p>
         )}
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="starts_at">Fecha inicio *</Label>
-          <Input id="starts_at" type="date" {...register("starts_at")} />
-          {errors.starts_at && (
-            <p className="text-sm text-destructive">{errors.starts_at.message}</p>
-          )}
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="ends_at">Fecha fin *</Label>
-          <Input id="ends_at" type="date" {...register("ends_at")} />
-          {errors.ends_at && (
-            <p className="text-sm text-destructive">{errors.ends_at.message}</p>
-          )}
-        </div>
       </div>
 
       <DialogFooter>
         <Button type="button" variant="secondary" onClick={onCancel}>
           Cancelar
         </Button>
-        <Button type="submit" disabled={isSubmitting}>
+        <Button type="submit" disabled={isSubmitting || !canSubmit}>
           {isSubmitting ? "Creando..." : "Crear pedido"}
         </Button>
       </DialogFooter>

@@ -18,7 +18,7 @@ export default function RoleGuard({ roles }: RoleGuardProps) {
       toastShown.current = true;
       toast.error('Acceso denegado');
     }
-    return <Navigate to="/screens" replace />;
+    return <Navigate to="/orders" replace />;
   }
 
   return <Outlet />;

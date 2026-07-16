@@ -37,6 +37,7 @@ class User extends Authenticatable
         'email',
         'password_hash',
         'role',
+        'is_active',
     ];
 
     /**
@@ -57,6 +58,7 @@ class User extends Authenticatable
     {
         return [
             'password_hash' => 'hashed',
+            'is_active' => 'boolean',
         ];
     }
 
@@ -82,6 +84,14 @@ class User extends Authenticatable
     public function isTenantAdmin(): bool
     {
         return $this->role === 'tenant_admin';
+    }
+
+    /**
+     * Determine if the user is a trafficker.
+     */
+    public function isTrafficker(): bool
+    {
+        return $this->role === 'trafficker';
     }
 
     /**

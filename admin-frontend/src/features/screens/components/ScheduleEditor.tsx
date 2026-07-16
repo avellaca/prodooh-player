@@ -127,7 +127,6 @@ export function ScheduleEditor({ screenId, schedule, groupName }: ScheduleEditor
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-lg">Horario operativo</CardTitle>
-        <Badge variant={origin.variant}>{origin.text}</Badge>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Show current schedule or empty state */}

@@ -149,34 +149,57 @@ class IntegrationEndToEndTest extends TestCase
 
     public function test_polling_and_confirm_updates_manifest_version(): void
     {
-        // Arrange: create screen with manifest
-        $tenant = Tenant::factory()->create();
+        // Arrange: create screen with manifest in Loop Template format
+        $tenant = Tenant::factory()->create([
+            'sync_interval_seconds' => 240,
+            'cache_flush_interval_hours' => 24,
+        ]);
         $screen = Screen::factory()->create(['tenant_id' => $tenant->id]);
         $token = $this->issueToken($screen);
 
         $manifestVersion = hash('sha256', 'test-manifest-content');
+        $loopTemplate = [
+            'version' => "sha256:{$manifestVersion}",
+            'generated_at' => '2025-01-15T10:30:00+00:00',
+            'loop_config' => [
+                'num_slots' => 10,
+                'slot_duration_seconds' => 10,
+                'loop_duration_seconds' => 100,
+                'loops_per_day' => 576,
+            ],
+            'slots' => [
+                [
+                    'position' => 0,
+                    'type' => 'ad',
+                    'strategy' => 'fixed',
+                    'candidates' => [
+                        [
+                            'order_line_id' => fake()->uuid(),
+                            'creative_id' => fake()->uuid(),
+                            'asset_url' => '/api/device/content/uuid/file',
+                            'checksum_sha256' => hash('sha256', 'video-content'),
+                        ],
+                    ],
+                ],
+                [
+                    'position' => 7,
+                    'type' => 'ssp',
+                    'strategy' => 'fixed',
+                    'provider' => 'prodooh',
+                    'candidates' => [],
+                ],
+            ],
+            'sync_interval_seconds' => 240,
+            'cache_flush_interval_hours' => 24,
+        ];
+
         ScreenManifest::create([
             'screen_id' => $screen->id,
             'version' => $manifestVersion,
             'generated_at' => now(),
-            'items' => [
-                [
-                    'position' => 0,
-                    'type' => 'order_line_creative',
-                    'asset_url' => 'https://cdn.example.com/video.mp4',
-                    'checksum_sha256' => hash('sha256', 'video-content'),
-                    'duration_seconds' => 10,
-                    'order_line_id' => fake()->uuid(),
-                    'creative_id' => fake()->uuid(),
-                ],
-                [
-                    'position' => 1,
-                    'type' => 'prodooh_ssp_call',
-                    'duration_seconds' => 10,
-                ],
-            ],
-            'total_spots' => 100,
-            'remaining_spots' => 80,
+            'items' => $loopTemplate,
+            'total_spots' => 5760,
+            'remaining_spots' => 4032,
         ]);
 
         // Act 1: Poll manifest (GET)
@@ -184,18 +207,23 @@ class IntegrationEndToEndTest extends TestCase
             'Authorization' => 'Bearer ' . $token,
         ]);
 
-        // Assert: response structure is correct
+        // Assert: response structure is Loop Template format
         $response->assertStatus(200);
         $response->assertJsonStructure([
             'version',
             'generated_at',
-            'items' => [
-                '*' => ['position', 'type', 'duration_seconds'],
+            'loop_config' => ['num_slots', 'slot_duration_seconds', 'loop_duration_seconds', 'loops_per_day'],
+            'slots' => [
+                '*' => ['position', 'type', 'strategy', 'candidates'],
             ],
+            'sync_interval_seconds',
+            'cache_flush_interval_hours',
         ]);
         $data = $response->json();
-        $this->assertEquals($manifestVersion, $data['version']);
-        $this->assertCount(2, $data['items']);
+        $this->assertEquals("sha256:{$manifestVersion}", $data['version']);
+        $this->assertCount(2, $data['slots']);
+        $this->assertEquals(240, $data['sync_interval_seconds']);
+        $this->assertEquals(24, $data['cache_flush_interval_hours']);
         $response->assertHeader('ETag', $manifestVersion);
 
         // Act 2: Confirm manifest adoption (POST)

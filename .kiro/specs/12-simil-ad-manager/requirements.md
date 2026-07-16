@@ -2,260 +2,211 @@
 
 ## Introduction
 
-Este feature implementa un conjunto de capacidades de gestión publicitaria avanzada para la plataforma Prodooh Hybrid Ad Player. Incluye: división de inventario por slots/anunciantes, nuevo rol "trafficker", cálculo dinámico de fechas de órdenes, alertas de disponibilidad de inventario, modo "por Slot" para líneas de patrocinio, herencia de configuración de slots, auditoría de cambios, configuración de red, e integración de caché SSP en el player.
+Este documento define los requisitos para la migración del sistema ProDooh desde un manifiesto plano (5.760 posiciones pre-calculadas por día) hacia un modelo de **Loop Template** estándar de la industria DOOH. En este modelo, un loop es un ciclo de duración fija (e.g., 10 slots × 10 segundos = 100 segundos) que se repite a lo largo del día. El backend genera la plantilla del loop; el player la reproduce de forma autónoma y rotando creativos localmente. El sistema incluye además gestión de órdenes, roles de usuario, auditoría y sincronización player-backend.
 
 ## Glossary
 
-- **Sistema**: La plataforma Prodooh Hybrid Ad Player en su conjunto (backend + frontend + player)
-- **Panel_Admin**: La interfaz web de administración (React/TypeScript)
-- **Motor_Prioridad**: El servicio PriorityEngine que calcula la distribución de spots por pantalla
-- **Player**: El cliente TypeScript que ejecuta contenido en Chromium kiosk (Raspberry Pi 5)
-- **Tenant**: Entidad de red/media owner, nivel superior de la jerarquía multi-tenant
-- **ScreenGroup**: Agrupación de pantallas dentro de un Tenant
-- **Screen**: Pantalla individual que pertenece a un ScreenGroup y un Tenant
-- **Order**: Orden publicitaria que agrupa líneas de orden para un anunciante
-- **OrderLine**: Línea de orden con prioridad, ritmo de entrega y spots objetivo
-- **Slot**: Fracción del inventario diario de una pantalla, definida como total_daily_spots / num_slots
-- **num_slots**: Valor de configuración que divide el inventario diario en partes iguales (no es entidad de BD)
-- **Anunciante**: Identificado por el campo `advertiser_name` en Order (no requiere entidad propia)
-- **Trafficker**: Nuevo rol de usuario con permisos limitados de gestión de órdenes y creativos
-- **Audit_Log**: Registro de auditoría que almacena cambios históricos sobre entidades
-- **StorageManager**: Componente del Player que gestiona el almacenamiento local con política LRU
-- **SSP**: Supply-Side Platform, servicio externo que provee anuncios programáticos
-- **ProDoohSource**: Componente del Player que integra con la API SSP
+- **Loop**: Ciclo de reproducción de duración fija que se repite durante la ventana operativa de una pantalla. Contiene un número fijo de slots.
+- **Loop_Template**: Estructura de datos generada por el backend que define la composición de un loop: qué contenido va en cada slot y las reglas de rotación entre iteraciones.
+- **Slot**: Posición individual dentro de un loop. Cada slot tiene una duración fija (slot_duration_seconds) y puede contener uno o varios candidatos.
+- **num_slots**: Número total de slots que componen un loop. Configurable por Tenant, heredable a ScreenGroup y Screen.
+- **ad_slots**: Slots reservados para líneas de orden publicitarias. Calculado como: num_slots - ssp_slots - playlist_slots.
+- **ssp_slots**: Slots reservados para proveedores SSP (programmatic). Configurables por Tenant.
+- **playlist_slots**: Slots reservados para contenido propio del operador (playlists). Configurables por Tenant.
+- **slot_duration_seconds**: Duración de cada slot en segundos. Campo existente como duration_seconds en la jerarquía ScreenGroup/Tenant.
+- **loops_per_day**: Número de iteraciones del loop en un día operativo. Calculado como: ventana_operativa_segundos / (num_slots × slot_duration_seconds).
+- **Candidato**: Creativo asignado a un slot. Un slot puede tener múltiples candidatos con estrategia de rotación round-robin entre iteraciones del loop.
+- **Priority_Engine**: Servicio del backend que ejecuta la jerarquía de prioridades para asignar líneas de orden a ad_slots.
+- **Patrocinio**: Tier de prioridad máxima. Ocupa slots garantizados en cada iteración del loop.
+- **Estandar**: Tier de prioridad intermedia. Puede configurarse como ASAP o Uniform.
+- **Red_Interna**: Tier de prioridad mínima. Rellena ad_slots no utilizados. Siempre uniforme.
+- **ASAP**: Ritmo de entrega acelerado. La línea aparece con mayor frecuencia en la rotación entre iteraciones.
+- **Uniform**: Ritmo de entrega uniforme. La línea se distribuye equitativamente según share_weight.
+- **Round_Robin**: Estrategia de rotación donde candidatos de un slot compartido se alternan entre iteraciones del loop.
+- **sync_interval_seconds**: Intervalo en segundos entre consultas del player al backend para detectar cambios en la versión del Loop_Template.
+- **Tenant**: Organización operadora de red. Nivel superior de la jerarquía de configuración.
+- **ScreenGroup**: Agrupación de pantallas dentro de un Tenant. Nivel intermedio de herencia.
+- **Screen**: Pantalla individual. Nivel más bajo de la jerarquía.
+- **Sistema**: El conjunto backend + frontend + player del sistema ProDooh.
+- **Backend**: Servicio API Laravel que genera Loop_Templates y gestiona la lógica de negocio.
+- **Player**: Aplicación cliente que reproduce contenido en las pantallas físicas.
+- **Frontend**: Panel de administración web (React/TypeScript).
+- **Trafficker**: Rol de usuario con permisos limitados a gestión de órdenes sin capacidad de activación ni configuración.
+- **Audit_Log**: Registro polimórfico de todos los cambios realizados sobre entidades del sistema.
 
 ## Requirements
 
-### Requirement 1: Configuración de Slots por Inventario
+### Requisito 1: Configuración de Loop (num_slots, ssp_slots, playlist_slots)
 
-**User Story:** Como tenant_admin, quiero configurar el número de slots que dividen el inventario diario de mis pantallas, para poder planificar la capacidad publicitaria por anunciante.
+**User Story:** Como tenant_admin, quiero configurar la estructura del loop de mis pantallas (número de slots totales, reservados para SSP y para playlist), para que la distribución del inventario refleje mi modelo de negocio.
 
-#### Acceptance Criteria
+#### Criterios de Aceptación
 
-1. THE Tenant SHALL tener un campo `num_slots` de tipo entero con valor por defecto de 10 y rango válido de 1 a 100
-2. THE ScreenGroup SHALL poder definir un campo `num_slots` (nullable, entero, rango 1–100) que sobreescriba el valor heredado del Tenant
-3. THE Screen SHALL poder definir un campo `num_slots` (nullable, entero, rango 1–100) que sobreescriba el valor heredado del ScreenGroup
-4. WHEN el Sistema calcula la capacidad de un slot para una pantalla, THE Sistema SHALL calcular floor(total_daily_spots / num_slots efectivo) como la cantidad de spots por slot
-5. WHEN un Tenant tiene num_slots como null, THE Sistema SHALL utilizar el valor por defecto hardcoded de 10
-6. WHEN un ScreenGroup tiene num_slots como null, THE Sistema SHALL heredar el valor del Tenant al que pertenece
-7. WHEN una Screen tiene num_slots como null, THE Sistema SHALL heredar el valor del ScreenGroup al que pertenece (y transitivamente del Tenant si el grupo tampoco lo define)
-8. IF un usuario intenta configurar num_slots con un valor fuera del rango 1–100 o no entero, THEN THE Sistema SHALL rechazar la operación y retornar un error de validación
+1. THE Backend SHALL almacenar num_slots como entero con valor por defecto 10 y rango permitido de 1 a 100 en la configuración de Tenant.
+2. THE Backend SHALL almacenar ssp_slots como entero con valor por defecto 2 y rango de 0 a num_slots en la configuración de Tenant.
+3. THE Backend SHALL almacenar playlist_slots como entero con valor por defecto 1 y rango de 0 a num_slots en la configuración de Tenant.
+4. THE Backend SHALL calcular ad_slots como: num_slots - ssp_slots - playlist_slots.
+5. IF ssp_slots + playlist_slots es mayor o igual a num_slots, THEN THE Backend SHALL rechazar la configuración con un error de validación indicando que debe quedar al menos 1 ad_slot.
+6. WHEN un Screen no tiene num_slots configurado, THE Backend SHALL heredar num_slots del ScreenGroup padre; si el ScreenGroup tampoco lo tiene, THE Backend SHALL heredar del Tenant.
+7. WHEN un tenant_admin modifica num_slots en el Tenant y selecciona "Aplicar a todos", THE Frontend SHALL mostrar un modal de confirmación indicando cuántos ScreenGroups y Screens se verán afectados.
+8. WHEN el usuario confirma "Aplicar a todos", THE Backend SHALL propagar num_slots a todos los ScreenGroups y Screens del Tenant que no tengan un override explícito.
+9. THE Backend SHALL rechazar con HTTP 403 las solicitudes de configuración de num_slots, ssp_slots o playlist_slots de usuarios que no sean tenant_admin o super_admin.
+10. THE Frontend SHALL usar el campo existente duration_seconds (slot_duration_seconds) sin crear un campo nuevo para la duración del slot.
 
----
+### Requisito 2: Generación de Loop Template (Priority Engine v3)
 
-### Requirement 2: Propagación "Aplicar a Todos" para num_slots
+**User Story:** Como operador de red, quiero que el backend genere automáticamente un Loop Template optimizado para cada pantalla, para que el player reproduzca contenido según las prioridades contratadas sin necesitar un manifiesto plano de 5.760 posiciones.
 
-**User Story:** Como tenant_admin, quiero poder propagar el valor de num_slots a niveles inferiores con una confirmación clara, para facilitar la configuración masiva sin perder control.
+#### Criterios de Aceptación
 
-#### Acceptance Criteria
+1. THE Priority_Engine SHALL generar un Loop_Template por cada Screen activa (con al menos un schedule vigente y estado operativo), conteniendo exactamente num_slots posiciones (donde num_slots se resuelve por herencia: Screen → ScreenGroup → Tenant → 10).
+2. THE Priority_Engine SHALL asignar ad_slots siguiendo la jerarquía estricta: Patrocinio > Estandar ASAP > Estandar Uniform > Red_Interna, procesando cada tier en orden y consumiendo slots disponibles antes de pasar al siguiente.
+3. WHEN una línea de Patrocinio tiene configurado slots_purchased = N, THE Priority_Engine SHALL asignar N posiciones fijas garantizadas dentro de cada Loop_Template de las pantallas objetivo, de modo que esas posiciones se reproduzcan en TODAS las iteraciones del loop sin rotación.
+4. IF la suma de slots_purchased de todas las líneas de Patrocinio activas para una pantalla excede los ad_slots disponibles, THEN THE Priority_Engine SHALL rechazar la activación de la última línea que causa el exceso y generar un error indicando la cantidad de ad_slots insuficientes.
+5. WHEN hay más líneas activas del mismo tier que ad_slots restantes disponibles para ese tier, THE Priority_Engine SHALL asignar múltiples candidatos al mismo slot con estrategia Round_Robin entre iteraciones del loop, registrando el orden de rotación en la lista de candidatos del slot.
+6. WHEN existen líneas Estandar con pace ASAP y líneas con pace Uniform activas simultáneamente para una pantalla, y la suma de creativos activos (con active_dates incluyendo hoy) es de 10 o menos, THE Priority_Engine SHALL programar la rotación de líneas ASAP con ratio 1 aparición ASAP cada 2 Uniform entre iteraciones sucesivas.
+7. WHEN existen líneas Estandar con pace ASAP y líneas con pace Uniform activas simultáneamente para una pantalla, y la suma de creativos activos es mayor que 10, THE Priority_Engine SHALL programar la rotación con ratio 1 aparición ASAP cada 3 Uniform entre iteraciones sucesivas.
+8. THE Priority_Engine SHALL asignar posiciones fijas dentro del loop para ssp_slots y playlist_slots en índices separados de los ad_slots, de manera que los tipos de slot ocupen rangos definidos y predecibles.
+9. WHEN todos los ad_slots están asignados a líneas de Patrocinio y Estandar, THE Priority_Engine SHALL excluir líneas de Red_Interna del Loop_Template.
+10. WHEN quedan ad_slots sin asignar después de Patrocinio y Estandar, THE Priority_Engine SHALL rellenar los slots restantes con líneas de Red_Interna distribuyendo proporcionalmente al share_weight de cada línea.
+11. WHEN una línea se activa, desactiva, cambia de creativos o cambia de configuración, THE Backend SHALL regenerar el Loop_Template de todas las pantallas afectadas en un tiempo máximo de 30 segundos.
+12. THE Loop_Template SHALL incluir para cada slot: tipo (ad, ssp, playlist), posición ordinal, duración en segundos, lista ordenada de candidatos con asset_url, checksum_sha256, y estrategia de rotación (fixed o round_robin).
+13. WHEN el Loop_Template cambia, THE Backend SHALL recalcular la versión como hash SHA-256 del contenido serializado para que el player detecte el cambio comparando hashes.
+14. IF no existen líneas activas de ningún tier ni contenido SSP ni playlist para una pantalla activa, THEN THE Priority_Engine SHALL generar un Loop_Template vacío con su versión correspondiente, para que el player muestre la pantalla en estado idle.
+15. IF solo existen líneas Estandar ASAP sin líneas Uniform activas, THEN THE Priority_Engine SHALL distribuir las líneas ASAP por share_weight sin aplicar ratio ASAP:Uniform.
 
-1. WHEN el tenant_admin ejecuta "Aplicar a Todos" desde el nivel Tenant, THE Panel_Admin SHALL sobreescribir el num_slots de todos los ScreenGroups y Screens del Tenant con el valor de num_slots actualmente configurado en ese Tenant
-2. WHEN el tenant_admin ejecuta "Aplicar a Todos" desde el nivel ScreenGroup, THE Panel_Admin SHALL sobreescribir el num_slots de todas las Screens de ese grupo con el valor de num_slots actualmente configurado en ese ScreenGroup
-3. WHEN existen 1 o más entidades con num_slots explícitamente configurado en niveles inferiores al ejecutar "Aplicar a Todos", THE Panel_Admin SHALL mostrar un diálogo de confirmación que indique la cantidad de entidades con overrides que serán sobreescritas
-4. WHEN el admin confirma el diálogo de propagación, THE Sistema SHALL aplicar la sobreescritura de forma atómica a todas las entidades afectadas, de modo que o todas se actualizan o ninguna se modifica
-5. WHEN el admin cancela el diálogo, THE Sistema SHALL mantener los valores actuales de num_slots en todas las entidades sin modificación
-6. IF la propagación falla por error del sistema después de la confirmación, THEN THE Panel_Admin SHALL mostrar un mensaje de error indicando que la operación no se completó y que los valores no fueron modificados
-7. IF no existen ScreenGroups en el Tenant o no existen Screens en el ScreenGroup al ejecutar "Aplicar a Todos", THEN THE Panel_Admin SHALL mostrar un mensaje informativo indicando que no hay entidades inferiores a las cuales propagar
-8. IF no existen overrides en niveles inferiores al ejecutar "Aplicar a Todos", THEN THE Sistema SHALL ejecutar la propagación directamente sin mostrar el diálogo de confirmación
+### Requisito 3: Restricciones de Pace por Tier
 
----
+**User Story:** Como product owner, quiero que Patrocinio y Red Interna siempre usen distribución uniforme y que solo Estandar permita elegir ASAP, para mantener la coherencia del modelo de negocio.
 
-### Requirement 3: Impacto de Cambio de num_slots en Líneas Activas
+#### Criterios de Aceptación
 
-**User Story:** Como tenant_admin, quiero recibir una alerta al cambiar num_slots si hay líneas activas afectadas, para evitar conflictos involuntarios.
+1. WHEN una OrderLine tiene priority_tier "patrocinio", THE Backend SHALL forzar delivery_pace a "uniform" independientemente del valor enviado en la solicitud.
+2. WHEN una OrderLine tiene priority_tier "red_interna", THE Backend SHALL forzar delivery_pace a "uniform" independientemente del valor enviado en la solicitud.
+3. WHEN una OrderLine tiene priority_tier "estandar", THE Backend SHALL aceptar delivery_pace con valor "asap" o "uniform" según lo indicado por el usuario.
+4. WHILE el usuario edita una OrderLine con priority_tier "patrocinio" en el Frontend, THE Frontend SHALL mostrar el campo delivery_pace deshabilitado con valor fijo "uniform".
+5. WHILE el usuario edita una OrderLine con priority_tier "red_interna" en el Frontend, THE Frontend SHALL mostrar el campo delivery_pace deshabilitado con valor fijo "uniform".
+6. WHILE el usuario edita una OrderLine con priority_tier "estandar" en el Frontend, THE Frontend SHALL habilitar el campo delivery_pace con opciones "asap" y "uniform".
 
-#### Acceptance Criteria
+### Requisito 4: Toggle "Por Slot" para Patrocinio
 
-1. WHEN el admin modifica num_slots en cualquier nivel (Tenant, ScreenGroup o Screen) y existen OrderLines con status "active" que apuntan a pantallas cuyo num_slots efectivo cambia por la modificación, THE Panel_Admin SHALL mostrar una alerta no-bloqueante que liste la cantidad de OrderLines activas afectadas e informe que el cambio solo aplica a nuevas activaciones
-2. WHEN el admin modifica num_slots y no existen OrderLines con status "active" que apunten a pantallas afectadas por el cambio, THE Panel_Admin SHALL aplicar la modificación sin mostrar alerta
-3. WHEN una OrderLine cambia su status de "draft" a "active" después de una modificación de num_slots, THE Motor_Prioridad SHALL calcular sus target_spots utilizando el valor de num_slots efectivo vigente al momento de la activación
-4. THE Motor_Prioridad SHALL mantener los target_spots almacenados de OrderLines que ya tenían status "active" al momento del cambio de num_slots, sin recalcularlos
-5. IF una OrderLine con status "paused" cambia a status "active" después de una modificación de num_slots, THEN THE Motor_Prioridad SHALL conservar los target_spots originales calculados en su primera activación sin recalcular con el nuevo num_slots
+**User Story:** Como trafficker o tenant_admin, quiero poder configurar una línea de Patrocinio indicando cuántos slots del loop deseo comprar, para que el sistema calcule automáticamente los spots diarios garantizados.
 
----
+#### Criterios de Aceptación
 
-### Requirement 4: Inventario No Utilizado por Slot
+1. WHILE el usuario crea o edita una OrderLine con priority_tier "patrocinio", THE Frontend SHALL mostrar un toggle "Por Slot" visible únicamente para este tier.
+2. WHEN el toggle "Por Slot" está activado, THE Frontend SHALL mostrar un campo numérico "Slots" con rango 1 a ad_slots de la configuración del Tenant.
+3. WHEN el toggle "Por Slot" está activado y el usuario selecciona N slots, THE Backend SHALL calcular target_spots como: N × loops_per_day (donde loops_per_day = ventana_operativa_segundos / (num_slots × slot_duration_seconds)).
+4. WHEN el toggle "Por Slot" está desactivado, THE Frontend SHALL mostrar el campo target_spots para entrada manual directa.
+5. THE Backend SHALL almacenar tanto el número de slots comprados (slots_purchased) como el target_spots calculado al momento de la configuración.
+6. WHEN el usuario cambia num_slots del Tenant después de crear una línea de Patrocinio con "Por Slot", THE Backend SHALL mantener el target_spots original sin recalcular (valor fijo al momento de configuración).
 
-**User Story:** Como operador, quiero que los slots sin órdenes activas se destinen a Playlist/SSP en lugar de redistribuirse, para mantener la disponibilidad para futuros anunciantes.
+### Requisito 5: Fechas Dinámicas de Orden
 
-#### Acceptance Criteria
+**User Story:** Como desarrollador, quiero que las fechas de inicio y fin de una orden se calculen dinámicamente a partir de sus líneas, para eliminar datos redundantes y simplificar el formulario de creación.
 
-1. WHEN un slot no tiene OrderLines activas que lo consuman, THE Motor_Prioridad SHALL asignar el 100% de la capacidad de ese slot (total_daily_spots / num_slots) al pool de Playlist/SSP
-2. WHEN existen OrderLines activas en otros slots de la misma pantalla pero un slot permanece sin consumir, THE Motor_Prioridad SHALL mantener las asignaciones de los otros slots sin incremento, sin redistribuir la capacidad del slot vacío a otros anunciantes
-3. WHEN la capacidad no utilizada se asigna al pool de Playlist/SSP, THE Motor_Prioridad SHALL dividir el remanente asignando floor(remanente / 2) spots a SSP y el resto a Playlist
-4. WHEN una nueva OrderLine se activa y apunta a una pantalla con slots previamente vacíos, THE Motor_Prioridad SHALL recalcular la asignación de esa pantalla en el siguiente ciclo de recálculo, desplazando spots de Playlist/SSP para servir la nueva línea según su priority_tier y daily_budget
-5. IF una OrderLine activa no consume la totalidad de la capacidad de su slot asignado, THEN THE Motor_Prioridad SHALL asignar la capacidad sobrante de ese slot al pool de Playlist/SSP sin redistribuirla a OrderLines de otros anunciantes
+#### Criterios de Aceptación
 
----
+1. THE Backend SHALL eliminar las columnas starts_at y ends_at de la tabla orders.
+2. WHEN se consulta una orden, THE Backend SHALL calcular starts_at como el MIN(starts_at) de todas las OrderLines asociadas, y ends_at como el MAX(ends_at) de todas las OrderLines asociadas.
+3. THE Frontend SHALL mostrar en el formulario de creación de orden únicamente los campos: nombre y advertiser_name.
+4. THE Frontend SHALL omitir los campos de fecha y estado del formulario de creación de orden.
+5. WHEN se crea una nueva orden, THE Backend SHALL asignar status "draft" automáticamente.
+6. IF un usuario intenta activar una orden que no tiene al menos 1 OrderLine con al menos 1 Creative asignado, THEN THE Backend SHALL rechazar la activación con un mensaje de error descriptivo.
 
-### Requirement 5: Orden de Prioridad y Entrega (Waterfall)
+### Requisito 6: Alerta de Disponibilidad de Inventario al Activar
 
-**User Story:** Como operador de tráfico, quiero que el motor de prioridad respete un orden estricto de tiers con reglas de inserción ASAP, para garantizar la entrega correcta según la prioridad comercial.
+**User Story:** Como tenant_admin, quiero recibir una alerta informativa al activar una línea de orden cuando el inventario podría ser insuficiente, para tomar decisiones informadas sin bloquear la activación.
 
-#### Acceptance Criteria
+#### Criterios de Aceptación
 
-1. THE Motor_Prioridad SHALL procesar los tiers en este orden estricto: patrocinio → estandar → red_interna → SSP/Playlist, asignando capacidad al siguiente nivel solo con el remanente no consumido por el nivel anterior
-2. THE Motor_Prioridad SHALL procesar todas las líneas de patrocinio antes que cualquier línea de otro tier, independientemente de su delivery_pace, y sin aplicar reglas de entrelazado ASAP/uniform dentro de este tier
-3. WHEN el total de creativos activos (creativos con active_dates que incluyen hoy, sumados entre todas las OrderLines activas del tier estandar para la pantalla evaluada) es menor o igual a 10, THE Motor_Prioridad SHALL insertar 1 spot de línea ASAP cada 2 spots de líneas uniform dentro de la subsequencia del tier estandar, resultando en un patrón repetitivo de ratio 1:2 (ASAP:uniform)
-4. WHEN el total de creativos activos (creativos con active_dates que incluyen hoy, sumados entre todas las OrderLines activas del tier estandar para la pantalla evaluada) es mayor a 10, THE Motor_Prioridad SHALL insertar 1 spot de línea ASAP cada 3 spots de líneas uniform dentro de la subsequencia del tier estandar, resultando en un patrón repetitivo de ratio 1:3 (ASAP:uniform)
-5. WHILE se distribuyen spots ASAP dentro del tier estandar, IF existen múltiples OrderLines con delivery_pace "asap", THEN THE Motor_Prioridad SHALL repartir los slots ASAP entre ellas proporcionalmente por share_weight, aplicando el mismo entrelazado Bresenham usado en el resto del sistema
-6. IF no existen líneas con delivery_pace "asap" en el tier estandar, THEN THE Motor_Prioridad SHALL distribuir todos los spots del tier estandar usando solo líneas uniform con entrelazado Bresenham estándar, sin aplicar ratio de inserción ASAP
-7. IF todas las líneas activas del tier estandar tienen delivery_pace "asap" (no existen líneas uniform), THEN THE Motor_Prioridad SHALL distribuir todos los spots del tier estandar entre las líneas ASAP por share_weight con entrelazado Bresenham, sin aplicar ratio de inserción respecto a uniform
+1. WHEN el usuario activa una OrderLine, THE Backend SHALL calcular la disponibilidad comparando: target_spots de la línea contra (loops_per_day × slots asignables) considerando las demás líneas activas en las mismas pantallas.
+2. IF la disponibilidad calculada indica que target_spots supera la capacidad disponible, THEN THE Frontend SHALL mostrar un modal informativo con el mensaje de saturación y las opciones "Estoy de acuerdo" y "Modificar".
+3. WHEN el usuario selecciona "Estoy de acuerdo", THE Frontend SHALL proceder con la activación sin bloquear.
+4. WHEN el usuario selecciona "Modificar", THE Frontend SHALL regresar al formulario de edición de la OrderLine.
+5. THE Backend SHALL ejecutar el cálculo de disponibilidad únicamente al momento de activación, no durante la edición en estado draft.
+6. IF la disponibilidad es suficiente para cumplir target_spots, THEN THE Backend SHALL activar la OrderLine directamente sin mostrar alerta.
 
----
+### Requisito 7: Sincronización Player y Reproducción del Loop
 
-### Requirement 6: Modo "Por Slot" para Líneas de Patrocinio
+**User Story:** Como operador de red, quiero que el player sincronice eficientemente con el backend descargando solo cambios incrementales, para minimizar el uso de ancho de banda y garantizar continuidad de reproducción.
 
-**User Story:** Como tenant_admin, quiero activar un toggle "por Slot" en líneas de patrocinio para que el sistema calcule automáticamente los spots objetivo como un slot completo, simplificando la contratación.
+#### Criterios de Aceptación
 
-#### Acceptance Criteria
+1. THE Player SHALL consultar al Backend la versión del Loop_Template cada sync_interval_seconds (configurable entre 30 y 900 segundos, por defecto 240 segundos).
+2. WHEN la versión del Loop_Template no ha cambiado, THE Backend SHALL responder con HTTP 304 y THE Player SHALL continuar reproduciendo el loop actual sin interrupciones ni reiniciar la posición de reproducción.
+3. WHEN la versión del Loop_Template ha cambiado, THE Player SHALL descargar la nueva plantilla y comparar los assets mediante checksum SHA-256 contra los almacenados localmente.
+4. WHEN el Player detecta assets nuevos en el Loop_Template actualizado, THE Player SHALL descargar únicamente los assets cuyo checksum no coincida con ningún asset almacenado localmente, validando el checksum de cada archivo descargado.
+5. IF la descarga o validación de checksum de un asset falla, THEN THE Player SHALL continuar reproduciendo el Loop_Template anterior hasta el siguiente ciclo de sincronización.
+6. WHEN el Player detecta assets que ya no están en el Loop_Template actualizado, THE Player SHALL marcar esos assets como elegibles para limpieza LRU sin eliminarlos inmediatamente.
+7. WHILE un asset está incluido en el Loop_Template activo, THE Player SHALL proteger ese asset de la limpieza LRU independientemente de su antigüedad.
+8. WHEN un slot de tipo SSP es el siguiente en la secuencia de reproducción, THE Player SHALL iniciar la pre-carga del contenido SSP antes de que el slot actual termine su duración (utilizando la lógica existente de ProDoohSource).
+9. IF el SSP no retorna contenido (no-fill) o la pre-carga falla antes de que el slot SSP deba reproducirse, THEN THE Player SHALL reproducir el primer playlist_item disponible como contenido de fallback por la duración del slot SSP.
+10. WHEN el Player reproduce un slot SSP, THE Player SHALL utilizar el print_id de la respuesta SSP más reciente para el Proof-of-Play, manteniendo deduplicación de caché por URL exacta del asset.
+11. WHILE el Player no puede contactar al Backend durante la sincronización (timeout de 30 segundos o error de red), THE Player SHALL continuar reproduciendo el Loop_Template más reciente disponible localmente y reintentar en el siguiente ciclo.
+12. THE Player SHALL rotar los candidatos dentro de cada slot que contenga múltiples creativos asignados usando estrategia Round_Robin secuencial sin necesitar un nuevo Loop_Template del Backend.
 
-1. WHEN una OrderLine tiene priority_tier "patrocinio", THE Panel_Admin SHALL mostrar un toggle "por Slot" en el formulario de la línea
-2. WHEN el toggle "por Slot" está activado, THE Sistema SHALL calcular target_spots como floor(total_daily_spots / num_slots efectivo) para cada pantalla objetivo
-3. WHEN el toggle "por Slot" está activado y la OrderLine apunta a múltiples pantallas con diferente num_slots efectivo, THE Sistema SHALL calcular y almacenar un target_spots independiente por cada pantalla objetivo
-4. WHEN el toggle "por Slot" está desactivado, THE Panel_Admin SHALL permitir al usuario ingresar target_spots manualmente con un valor mínimo de 1 y máximo igual a total_daily_spots de la pantalla objetivo
-5. WHEN el usuario guarda la OrderLine con el toggle "por Slot" activado, THE Sistema SHALL fijar el valor de target_spots calculado en ese momento sin recalcular ante cambios posteriores en total_daily_spots o num_slots
-6. WHEN el usuario desactiva el toggle "por Slot" en una OrderLine que previamente lo tenía activado, THE Panel_Admin SHALL limpiar el valor de target_spots calculado y mostrar el campo de entrada manual vacío
-7. WHEN una OrderLine tiene priority_tier diferente de "patrocinio", THE Panel_Admin SHALL ocultar el toggle "por Slot"
-8. WHEN el toggle "por Slot" está activado, THE Panel_Admin SHALL mostrar el valor calculado de target_spots como campo de solo lectura visible para el usuario antes de guardar
+### Requisito 8: Configuración de Tenant (Ajustes de Red)
 
----
+**User Story:** Como super_admin o tenant_admin, quiero configurar los parámetros de red de un tenant desde un panel centralizado, para controlar el comportamiento del loop y la sincronización de todas las pantallas.
 
-### Requirement 7: Cálculo Dinámico de Fechas de Order
+#### Criterios de Aceptación
 
-**User Story:** Como usuario del sistema, quiero que las fechas de una Order se calculen automáticamente desde sus líneas de orden, para eliminar la entrada manual redundante.
+1. THE Backend SHALL almacenar sync_interval_seconds como entero con valor por defecto 240 y rango de 30 a 900 en la configuración de Tenant.
+2. THE Backend SHALL almacenar cache_flush_interval_hours como entero con valor por defecto 24 y rango de 1 a 720 en la configuración de Tenant.
+3. THE Frontend SHALL presentar un panel de "Ajustes de Red" con los campos: num_slots, ssp_slots, playlist_slots, sync_interval_seconds, cache_flush_interval_hours.
+4. THE Backend SHALL rechazar con HTTP 403 las solicitudes de modificación de ajustes de red de usuarios que no sean tenant_admin o super_admin.
+5. WHEN se modifican sync_interval_seconds o cache_flush_interval_hours, THE Backend SHALL incluir los nuevos valores en la próxima respuesta de sincronización al Player.
 
-#### Acceptance Criteria
+### Requisito 9: Rol Trafficker
 
-1. WHEN el Sistema recibe una solicitud GET de una Order que tiene al menos una OrderLine, THE Sistema SHALL retornar starts_at calculado como el valor mínimo de starts_at entre todas sus OrderLines, y ends_at calculado como el valor máximo de ends_at entre todas sus OrderLines
-2. WHEN una Order no tiene OrderLines asociadas, THE Sistema SHALL retornar starts_at y ends_at como null en la respuesta de la API
-3. WHEN una Order no tiene OrderLines asociadas, THE Panel_Admin SHALL no mostrar rango de fechas en la vista de detalle ni en el listado de Orders
-4. THE Sistema SHALL eliminar las columnas starts_at y ends_at de la tabla orders en base de datos mediante una migración
-5. THE Panel_Admin SHALL eliminar los campos starts_at y ends_at del formulario de creación y edición de Orders, de modo que el formulario solo contenga nombre, anunciante y estado
-6. WHEN una Order tiene OrderLines asociadas, THE Panel_Admin SHALL mostrar las fechas calculadas (starts_at y ends_at) como campos de solo lectura en formato dd-MM-yyyy en la vista de detalle y en el listado de Orders
-7. WHEN se crea, actualiza o elimina una OrderLine, THE Sistema SHALL recalcular las fechas de la Order padre en la siguiente consulta GET, reflejando el nuevo mínimo de starts_at y máximo de ends_at de las OrderLines restantes
-8. THE Panel_Admin SHALL eliminar la restricción de que las fechas de una OrderLine deban estar contenidas dentro de las fechas de la Order padre, dado que la Order ya no posee fechas propias
+**User Story:** Como tenant_admin, quiero crear usuarios con rol trafficker que puedan gestionar órdenes y creativos pero no activar campañas ni modificar configuración, para delegar tareas operativas manteniendo el control.
 
----
+#### Criterios de Aceptación
 
-### Requirement 8: Alerta de Disponibilidad de Inventario al Activar
+1. THE Backend SHALL soportar el rol "trafficker" con permisos limitados a: crear, leer, editar y eliminar órdenes, líneas de orden y creativos.
+2. WHEN un usuario con rol trafficker intenta activar una OrderLine o una Order, THE Backend SHALL rechazar la solicitud con HTTP 403.
+3. WHEN un usuario con rol trafficker intenta acceder a configuración de Tenant, ScreenGroup o Screen, THE Backend SHALL rechazar la solicitud con HTTP 403.
+4. WHEN un usuario con rol trafficker intenta gestionar usuarios, THE Backend SHALL rechazar la solicitud con HTTP 403.
+5. WHILE un usuario con rol trafficker navega el Frontend, THE Frontend SHALL ocultar las secciones de configuración, activación y gestión de usuarios del menú y la interfaz.
+6. THE Frontend SHALL mostrar al trafficker únicamente las secciones: Órdenes, Líneas de Orden y Creativos.
 
-**User Story:** Como tenant_admin, quiero ver un análisis de disponibilidad de inventario al activar una OrderLine, para tomar decisiones informadas sobre posibles conflictos de capacidad.
+### Requisito 10: Gestión de Usuarios
 
-#### Acceptance Criteria
+**User Story:** Como tenant_admin, quiero invitar usuarios a mi tenant mediante email y gestionar sus contraseñas, para administrar el acceso al sistema de forma segura.
 
-1. WHEN un usuario activa una OrderLine, THE Sistema SHALL calcular para cada pantalla objetivo y cada día del rango active_dates si la suma de target_spots diarios de OrderLines activas existentes más los target_spots diarios de la OrderLine que se activa excede el total_daily_spots de esa pantalla
-2. WHEN el análisis detecta al menos una pantalla con al menos un día donde la demanda comprometida excede el total_daily_spots, THE Panel_Admin SHALL mostrar un modal informativo con el detalle del análisis de disponibilidad antes de proceder con la activación
-3. WHEN el análisis no detecta conflicto de capacidad en ninguna pantalla ni día, THE Sistema SHALL proceder directamente con la activación sin mostrar el modal
-4. THE Panel_Admin SHALL mostrar en el modal de disponibilidad: la lista de pantallas con conflicto, y para cada una el total_daily_spots, los spots ya comprometidos por otras OrderLines activas, los spots solicitados por la OrderLine que se activa, y el déficit resultante
-5. THE Panel_Admin SHALL incluir un botón "Estoy de acuerdo" en el modal que cierra el diálogo y procede con la activación sin bloquearla
-6. THE Panel_Admin SHALL incluir un botón "Modificar" en el modal que retorna al formulario de edición de la OrderLine sin activarla y sin cambiar su status
-7. THE Sistema SHALL considerar como inventario comprometido únicamente los target_spots de OrderLines con status "active" que compartan al menos una pantalla objetivo y al menos un día en común dentro de sus active_dates
-8. THE Sistema SHALL excluir la capacidad reservada para SSP y Playlist del cálculo de disponibilidad, tratando el total_daily_spots completo como disponible para OrderLines
-9. THE Sistema SHALL ejecutar el cálculo de disponibilidad únicamente al momento de activación, sin recalculación posterior ni actualización en tiempo real
+#### Criterios de Aceptación
 
----
+1. WHEN un tenant_admin invita a un nuevo usuario, THE Backend SHALL enviar un email de invitación mediante Resend con un token de registro válido por 48 horas.
+2. IF el token de invitación ha expirado (más de 48 horas), THEN THE Backend SHALL rechazar el registro con un mensaje indicando que la invitación ha expirado.
+3. WHEN un usuario completa el registro con un token válido, THE Backend SHALL almacenar la contraseña hasheada con bcrypt y activar la cuenta.
+4. THE Backend SHALL permitir a super_admin gestionar usuarios de todos los tenants.
+5. THE Backend SHALL limitar a tenant_admin la gestión de usuarios únicamente dentro de su propio tenant.
+6. WHEN un usuario solicita restablecimiento de contraseña, THE Backend SHALL enviar un email con un enlace de reset válido por 1 hora.
+7. THE Frontend SHALL mostrar un enlace "¿Olvidaste tu contraseña?" en la página de login que inicie el flujo de restablecimiento.
 
-### Requirement 9: Rol Trafficker
+### Requisito 11: Registro de Auditoría
 
-**User Story:** Como tenant_admin, quiero crear usuarios con rol trafficker que puedan gestionar órdenes y creativos sin acceso a configuración ni activación, para delegar tareas operativas de forma segura.
+**User Story:** Como tenant_admin, quiero ver un historial detallado de todos los cambios realizados sobre órdenes, líneas y creativos, para tener trazabilidad completa de las modificaciones.
 
-#### Acceptance Criteria
+#### Criterios de Aceptación
 
-1. THE Sistema SHALL soportar un rol "trafficker" adicional a los existentes "super_admin" y "tenant_admin", asociado obligatoriamente a un tenant_id válido
-2. WHEN un usuario con rol trafficker crea, edita o elimina una Order o una OrderLine dentro de su propio tenant, THE Sistema SHALL ejecutar la operación y persistir los cambios
-3. WHEN un usuario con rol trafficker sube un creativo o asigna un creativo a un target/resolución dentro de su propio tenant, THE Sistema SHALL ejecutar la operación y persistir los cambios
-4. IF un usuario con rol trafficker intenta cambiar el status de una Order u OrderLine a "active" o a "paused", THEN THE Sistema SHALL rechazar la operación con un error HTTP 403 indicando permisos insuficientes y no modificar el status
-5. IF un usuario con rol trafficker intenta acceder a la configuración de red (campos num_slots, schedule, duration, cache_flush_interval_hours) mediante API o interfaz, THEN THE Sistema SHALL rechazar la solicitud con un error HTTP 403 indicando permisos insuficientes
-6. IF un usuario con rol trafficker intenta crear, editar o eliminar cualquier usuario, THEN THE Sistema SHALL rechazar la operación con un error HTTP 403 indicando permisos insuficientes
-7. IF un usuario con rol trafficker intenta acceder a una Order, OrderLine o creativo que pertenece a un tenant diferente al suyo, THEN THE Sistema SHALL rechazar la solicitud con un error HTTP 403
-8. WHILE un usuario con rol trafficker tiene sesión activa, THE Panel_Admin SHALL mostrar únicamente las secciones de Pedidos, Contenidos y gestión de creativos, ocultando secciones de Configuración de Red, Pantallas, Grupos y gestión de usuarios en la navegación
-9. IF un usuario con rol trafficker intenta acceder por URL directa a una ruta restringida, THEN THE Panel_Admin SHALL redirigir al usuario a la vista de Pedidos (/orders) y mostrar un mensaje de acceso denegado
+1. THE Backend SHALL registrar en la tabla audit_logs cada cambio sobre entidades del sistema usando estructura polimórfica (auditable_type, auditable_id).
+2. THE Backend SHALL soportar los event_types: created, field_modified, status_changed, creative_added, creative_removed, spots_modified, name_changed, target_added, target_removed.
+3. WHEN se registra un evento field_modified, THE Backend SHALL almacenar un diff con los valores old_value y new_value del campo modificado.
+4. THE Frontend SHALL mostrar un ícono de reloj en cada entidad auditable que al presionarse abra un modal con el historial cronológico de cambios.
+5. THE Frontend SHALL usar badges de color para diferenciar tipos de cambio: verde para adiciones (created, creative_added, target_added), amarillo para modificaciones (field_modified, spots_modified, name_changed, status_changed), rojo para eliminaciones (creative_removed, target_removed).
+6. THE Backend SHALL registrar el usuario que realizó cada cambio (user_id) y la marca temporal (created_at) en cada entrada de audit_logs.
 
----
+### Requisito 12: Permisos y Autorización
 
-### Requirement 10: Gestión de Usuarios e Invitaciones
+**User Story:** Como product owner, quiero que cada rol tenga permisos claramente definidos y aplicados tanto en frontend como en backend, para garantizar la seguridad del sistema.
 
-**User Story:** Como tenant_admin, quiero invitar nuevos usuarios mediante email y gestionar sus cuentas, para controlar el acceso a mi red de forma autónoma.
+#### Criterios de Aceptación
 
-#### Acceptance Criteria
-
-1. WHEN un tenant_admin ingresa un email válido y confirma la creación de usuario, THE Sistema SHALL enviar un email de invitación a la dirección proporcionada mediante la API de Resend conteniendo un enlace único con token de activación
-2. WHEN el Sistema genera una invitación, THE Sistema SHALL crear un token de invitación con expiración de 48 horas asociado al email y tenant del usuario invitado
-3. WHEN el usuario invitado accede al enlace de invitación con un token válido y no expirado, THE Panel_Admin SHALL mostrar un formulario para establecer contraseña que requiera mínimo 8 caracteres
-4. WHEN el usuario establece una contraseña que cumple los requisitos mínimos, THE Sistema SHALL almacenarla hasheada con bcrypt, activar la cuenta y redirigir al usuario a la página de login
-5. IF el token de invitación ha expirado o ya fue utilizado, THEN THE Sistema SHALL mostrar un mensaje de error indicando que el enlace no es válido y no permitir establecer contraseña
-6. IF el email proporcionado ya está registrado en el mismo tenant, THEN THE Sistema SHALL rechazar la creación y mostrar un mensaje de error indicando que el usuario ya existe
-7. IF el envío del email de invitación falla en la API de Resend, THEN THE Sistema SHALL mostrar un mensaje de error al admin indicando que la invitación no pudo enviarse y no crear el registro de usuario
-8. WHEN un tenant_admin elimina un usuario, THE Sistema SHALL desactivar la cuenta del usuario seleccionado, siempre que el usuario no sea el mismo admin que ejecuta la acción
-9. WHEN un admin solicita reseteo de contraseña para un usuario, THE Sistema SHALL enviar un email mediante la API de Resend con un enlace que contiene un token de reseteo con expiración de 1 hora
-10. WHEN un super_admin accede a gestión de usuarios, THE Panel_Admin SHALL mostrar usuarios de todos los tenants con indicación del tenant al que pertenece cada usuario
-11. WHEN un tenant_admin accede a gestión de usuarios, THE Panel_Admin SHALL mostrar únicamente usuarios pertenecientes a su propio tenant
-12. THE Panel_Admin SHALL incluir un enlace "¿Olvidaste tu contraseña?" en la página de login que, al ser activado, solicite el email del usuario y envíe un email de reseteo con token de expiración de 1 hora mediante la API de Resend
-
----
-
-### Requirement 11: Registro de Auditoría (Bitácora)
-
-**User Story:** Como tenant_admin, quiero ver un historial cronológico de todos los cambios realizados en Orders y OrderLines, para mantener trazabilidad y control sobre las modificaciones.
-
-#### Acceptance Criteria
-
-1. WHEN se crea, modifica cualquier campo o cambia el status de una Order, THE Sistema SHALL registrar un evento en la tabla audit_logs con campos auditable_type, auditable_id (relación polimórfica), user_id, event_type, diff, y timestamp del evento
-2. WHEN se crea, modifica cualquier campo o cambia el status de una OrderLine, THE Sistema SHALL registrar un evento en la tabla audit_logs con campos auditable_type, auditable_id (relación polimórfica), user_id, event_type, diff, y timestamp del evento
-3. THE Audit_Log SHALL clasificar cada evento con uno de los siguientes valores de event_type: "created", "field_modified", "status_changed", "creative_added", "creative_removed", "spots_modified", "name_changed", "target_added", "target_removed"
-4. THE Audit_Log SHALL almacenar en el campo diff un objeto JSON con las claves "old" y "new", donde cada una contiene únicamente los campos que cambiaron con sus valores anteriores y posteriores respectivamente
-5. WHEN el evento es de tipo "created", THE Sistema SHALL registrar el campo diff con "old" como null y "new" con todos los valores iniciales de la entidad
-6. WHEN un usuario modifica múltiples campos de una entidad en una misma operación de guardado, THE Sistema SHALL registrar un único evento de tipo "field_modified" con todos los campos modificados incluidos en el diff
-7. THE Panel_Admin SHALL mostrar un botón con ícono de reloj con flecha circular en la vista de detalle de Order y OrderLine que abre un modal con el historial de auditoría ordenado del más reciente al más antiguo, mostrando un máximo de 50 entradas con scroll para cargar entradas anteriores
-8. THE Panel_Admin SHALL mostrar en cada entrada del historial: el nombre completo del usuario autor, la fecha y hora del evento, el tipo de evento, y los valores anteriores y nuevos de los campos modificados
-9. THE Panel_Admin SHALL mostrar un badge de color pastel junto a cada entrada del historial según la categoría de la acción: verde para creación y adiciones (created, creative_added, target_added), amarillo para modificaciones (field_modified, status_changed, spots_modified, name_changed), y rojo para eliminaciones (creative_removed, target_removed)
-10. IF el usuario autor de un evento ha sido eliminado del sistema, THEN THE Panel_Admin SHALL mostrar el texto "Usuario eliminado" en lugar del nombre en la entrada de auditoría correspondiente
-
----
-
-### Requirement 12: Configuración de Red (Tenant Settings)
-
-**User Story:** Como tenant_admin, quiero configurar parámetros globales de mi red incluyendo el intervalo de flush de caché, para controlar el comportamiento de los players remotos.
-
-#### Acceptance Criteria
-
-1. THE Tenant SHALL tener un campo configurable `cache_flush_interval_hours` de tipo entero con un rango válido de 1 a 720 (horas) y un valor por defecto de 24 cuando no ha sido configurado explícitamente
-2. WHEN un player solicita su configuración (heartbeat), THE Sistema SHALL incluir el campo `cache_flush_interval_hours` con su valor numérico actual del Tenant dentro del objeto de respuesta del heartbeat
-3. THE Panel_Admin SHALL incluir el campo `cache_flush_interval_hours` en la sección de configuración de red del Tenant, mostrando el valor actual y permitiendo su edición únicamente a usuarios con rol tenant_admin o superior
-4. IF un tenant_admin ingresa un valor de `cache_flush_interval_hours` fuera del rango 1–720 o no entero, THEN THE Sistema SHALL rechazar la actualización y retornar un mensaje de error indicando el rango válido permitido
-5. IF el campo `cache_flush_interval_hours` no ha sido configurado para un Tenant, THEN THE Sistema SHALL utilizar el valor por defecto de 24 horas en la respuesta de heartbeat al player
-
----
-
-### Requirement 13: Caché de Creativos SSP en el Player
-
-**User Story:** Como operador, quiero que el player cachee localmente los archivos multimedia recibidos del SSP, para reducir el consumo de ancho de banda y mejorar la velocidad de reproducción.
-
-#### Acceptance Criteria
-
-1. WHEN el SSP retorna una respuesta exitosa con una URL de medio, THE Player SHALL descargar el archivo completo y almacenarlo en caché local antes de reproducirlo, con un timeout máximo de 30 segundos para la descarga
-2. THE Player SHALL usar la URL completa (string exacto incluyendo query parameters) como clave de caché para identificar archivos almacenados
-3. WHEN la misma URL (comparación string-exact) aparece en una respuesta SSP posterior y el archivo existe en caché local, THE Player SHALL usar el archivo cacheado sin realizar una nueva descarga
-4. WHEN se reproduce un archivo cacheado obtenido de una respuesta SSP posterior, THE Player SHALL utilizar el print_id de la respuesta más reciente para el reporte de Proof of Play, descartando el print_id de la respuesta original que generó el cacheo
-5. THE Player SHALL registrar los archivos SSP cacheados en el CachedFileProvider del StorageManager existente, de modo que participen en la misma política LRU que el resto de archivos cacheados del player
-6. IF el espacio libre en disco es menor al 20% del total, THEN THE Player SHALL ejecutar limpieza de caché mediante LRU (eliminando primero los archivos con lastAccessed más antiguo), respetando la protección de archivos activos en playlist y fallback buffer
-7. IF la descarga del archivo falla (error de red, timeout de 30 segundos, o respuesta HTTP no exitosa), THEN THE Player SHALL reproducir directamente desde la URL remota sin almacenar en caché, y registrar el fallo para reintento en el próximo ciclo
-8. WHEN el tiempo transcurrido desde la última limpieza de caché supera el valor de cache_flush_interval_hours configurado en el Tenant, THE Player SHALL ejecutar una limpieza LRU independientemente del porcentaje de espacio libre en disco
-9. IF un archivo cacheado no se encuentra en disco al momento de reproducción (archivo eliminado externamente o corrupto), THEN THE Player SHALL descargar nuevamente el archivo desde la URL original y actualizar la entrada en caché
-
----
-
-### Requirement 14: Permisos de Acceso por Rol
-
-**User Story:** Como super_admin, quiero que cada rol tenga permisos claramente delimitados, para garantizar la seguridad y segregación de acceso en la plataforma.
-
-#### Acceptance Criteria
-
-1. THE Sistema SHALL otorgar al super_admin acceso de lectura, creación, edición, eliminación y activación sobre todos los recursos (Orders, OrderLines, creativos, usuarios, configuración de red) en todos los tenants sin restricción de tenant
-2. THE Sistema SHALL otorgar al tenant_admin acceso de lectura, creación, edición, eliminación y activación sobre todos los recursos (Orders, OrderLines, creativos, usuarios, configuración de red) exclusivamente dentro de su propio tenant
-3. THE Sistema SHALL restringir al trafficker a operaciones de lectura, creación, edición y eliminación de Orders, OrderLines y creativos exclusivamente dentro de su propio tenant, sin acceso a activación de órdenes, configuración de red ni gestión de usuarios
-4. WHEN un usuario con rol trafficker intenta realizar una operación de activación (cambio de status a "active"), acceder a configuración de red (num_slots, schedule, duration, cache_flush_interval_hours), o gestionar usuarios (crear, editar, eliminar usuarios), THE Sistema SHALL retornar un error HTTP 403 con un mensaje indicando permiso insuficiente
-5. WHEN un usuario con rol tenant_admin intenta acceder a recursos pertenecientes a un tenant distinto al suyo, THE Sistema SHALL retornar un error HTTP 403 con un mensaje indicando permiso insuficiente
-6. WHEN un usuario con rol trafficker intenta acceder a recursos pertenecientes a un tenant distinto al suyo, THE Sistema SHALL retornar un error HTTP 403 con un mensaje indicando permiso insuficiente
-7. THE Sistema SHALL validar permisos de rol en cada solicitud al backend antes de ejecutar la operación, independientemente de la visibilidad de elementos en el Panel_Admin
+1. THE Backend SHALL otorgar al rol super_admin acceso completo a todos los tenants y todas las operaciones del sistema.
+2. THE Backend SHALL limitar al rol tenant_admin acceso completo únicamente dentro de su propio tenant (órdenes, líneas, creativos, configuración, usuarios).
+3. THE Backend SHALL limitar al rol trafficker a operaciones CRUD sobre órdenes, líneas de orden y creativos, excluyendo activación, configuración y gestión de usuarios.
+4. WHEN un usuario intenta realizar una operación no autorizada para su rol, THE Backend SHALL responder con HTTP 403 y un mensaje de error descriptivo.
+5. THE Frontend SHALL evaluar el rol del usuario autenticado para mostrar u ocultar elementos de interfaz según los permisos correspondientes.
+6. THE Backend SHALL validar permisos en cada endpoint independientemente de lo que muestre el Frontend, para prevenir acceso no autorizado mediante llamadas directas a la API.

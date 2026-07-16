@@ -23,6 +23,8 @@ class OrderLine extends Model
         'target_spots',
         'delivery_pace',
         'share_weight',
+        'slots_purchased',
+        'by_slot',
         'time_window',
         'status',
     ];
@@ -34,6 +36,8 @@ class OrderLine extends Model
             'ends_at' => 'date',
             'time_window' => 'array',
             'active_dates' => 'array',
+            'slots_purchased' => 'integer',
+            'by_slot' => 'boolean',
         ];
     }
 

@@ -1,925 +1,955 @@
-# Design Document — Simil Ad Manager
+# Documento de Diseño — Loop Template (Ad Manager v3)
 
 ## Overview
 
-Este documento detalla el diseño técnico del feature "Simil Ad Manager", un conjunto de capacidades avanzadas de gestión publicitaria para la plataforma Prodooh Hybrid Ad Player. El feature abarca:
+### Resumen del Cambio Arquitectónico
 
-1. **Configuración de Slots** — División del inventario diario por slots con herencia Tenant→ScreenGroup→Screen
-2. **Waterfall mejorado** — Reglas de inserción ASAP:uniform con ratio dinámico según creativos activos
-3. **Modo "por Slot"** — Cálculo automático de target_spots para líneas de patrocinio
-4. **Fechas dinámicas de Order** — Eliminación de fechas manuales, cálculo desde OrderLines
-5. **Alerta de disponibilidad** — Análisis de conflictos al activar OrderLines
-6. **Rol Trafficker** — Nuevo rol con permisos limitados
-7. **Gestión de Usuarios** — Invitaciones vía email con Resend
-8. **Auditoría** — Bitácora de cambios en Orders/OrderLines
-9. **Configuración de Red** — Parámetros globales de Tenant incluyendo caché
-10. **Caché SSP en Player** — Almacenamiento local de creativos SSP con política LRU
+Este diseño describe la migración del sistema ProDooh desde un **manifiesto plano** (5.760 posiciones pre-calculadas por día) hacia un modelo de **Loop Template** estándar de la industria DOOH. En el nuevo modelo:
 
-### Decisiones de Diseño Clave
+- Un **loop** es un ciclo de duración fija (e.g., 10 slots × 10s = 100s) que se repite ~576 veces/día.
+- El **backend** genera una plantilla (Loop Template) que define la composición del loop.
+- El **player** reproduce el loop de forma autónoma, rotando candidatos localmente via round-robin.
+- El player consulta al backend periódicamente solo para detectar cambios de versión (hash SHA-256).
 
-| Decisión | Justificación |
-|----------|---------------|
-| `num_slots` como campo entero (no entidad) | Simplicidad; un slot no requiere identidad propia |
-| Herencia Tenant→Group→Screen para `num_slots` | Consistente con patrón existente de `duration_seconds` y `schedule` |
-| Fechas de Order calculadas (no almacenadas) | Elimina inconsistencia y mantenimiento manual |
-| Audit logs con relación polimórfica | Flexibilidad para auditar más entidades en el futuro |
-| Caché SSP con URL completa como key | Evita colisiones por query parameters de tracking |
-| Ratio ASAP:uniform dinámico | Adapta la frecuencia de inserción al volumen de creativos |
+### Tabla de Decisiones Clave
 
----
+| Decisión | Opción elegida | Justificación |
+|----------|---------------|---------------|
+| Formato de template | JSON con slots array | Simple, versionable via SHA-256, compatible con el esquema actual de `screen_manifests` |
+| Estrategia de rotación | Round-robin local en player | Reduce carga del backend; el player no necesita reconexión para rotar creativos |
+| Detección de cambios | Hash SHA-256 del template | Permite HTTP 304, sin timestamp comparison |
+| Herencia de num_slots | Screen → ScreenGroup → Tenant → 10 | Consistente con la jerarquía existente de `duration_seconds` |
+| Slots fijos por tipo | Rangos predecibles (ad → ssp → playlist) | Simplifica lógica del player y debugging |
+| Ratio ASAP:Uniform | 1:2 (≤10 creativos) / 1:3 (>10) | Balance entre urgencia de entrega y equidad |
+| Pace forzado por tier | Patrocinio/Red_Interna = uniform | Modelo de negocio: patrocinio es garantizado, red_interna es relleno |
+
 
 ## Architecture
 
-### Diagrama de Arquitectura General
+### Flujo General: Backend genera → Player consume
+
+```mermaid
+sequenceDiagram
+    participant BE as Backend (Laravel)
+    participant DB as PostgreSQL
+    participant PL as Player (TypeScript)
+
+    Note over BE: Trigger: línea activada/desactivada/modificada
+    BE->>BE: LoopTemplateGenerator.generate(screen)
+    BE->>DB: Upsert screen_manifests (JSON loop template)
+    
+    loop Cada sync_interval_seconds
+        PL->>BE: GET /api/device/manifest (If-None-Match: version_hash)
+        alt Sin cambios
+            BE-->>PL: HTTP 304 Not Modified
+        else Nueva versión
+            BE-->>PL: HTTP 200 + Loop Template JSON
+            PL->>PL: Diff assets (checksum SHA-256)
+            PL->>BE: Descargar solo assets nuevos
+            PL->>PL: Swap atómico del template activo
+        end
+    end
+
+    loop Reproducción continua
+        PL->>PL: LoopEngine: slot[0] → slot[N-1] → slot[0]...
+        PL->>PL: Round-robin candidatos entre iteraciones
+        PL->>BE: POST impressions (batch)
+    end
+```
+
+### Diagrama de Componentes
 
 ```mermaid
 graph TB
-    subgraph Frontend["Admin Frontend (React)"]
-        UI_Slots[Configuración Slots]
-        UI_Orders[Gestión Pedidos]
-        UI_Users[Gestión Usuarios]
-        UI_Audit[Historial Auditoría]
-        UI_Availability[Modal Disponibilidad]
-        UI_Network[Configuración Red]
+    subgraph Backend ["Backend (Laravel)"]
+        LTG[LoopTemplateGenerator]
+        SA[SlotAllocator]
+        RS[RotationScheduler]
+        AA[AvailabilityAnalyzer]
+        AS[AuditService]
+        UIS[UserInvitationService]
+        
+        LTG --> SA
+        LTG --> RS
+        SA --> AA
     end
 
-    subgraph Backend["Backend (Laravel 11)"]
-        API[API Controllers]
-        MW[Middleware Permisos]
-        SVC_Slots[SlotConfigService]
-        SVC_Priority[PriorityEngine v2]
-        SVC_Avail[AvailabilityAnalyzer]
-        SVC_Audit[AuditService]
-        SVC_Users[UserInvitationService]
-        SVC_Propagate[SlotPropagationService]
-        DB[(PostgreSQL)]
+    subgraph Frontend ["Frontend (React)"]
+        LC[LoopConfigPanel]
+        OF[OrderForm v2]
+        AL[AuditLogModal]
+        UM[UserManagement]
     end
 
-    subgraph Player["Player (TypeScript)"]
-        SSP_Cache[SspCacheManager]
-        Storage[StorageManager]
-        ProDooh[ProDoohSource]
+    subgraph Player ["Player (TypeScript)"]
+        LE[LoopEngine]
+        SP[SspPrefetcher]
+        SM[StorageManager]
+        MSM[ManifestSyncManager]
+        
+        MSM --> LE
+        LE --> SP
+        LE --> SM
     end
 
-    subgraph External["Servicios Externos"]
-        Resend[Resend API]
-        SSP_API[ProDooh SSP API]
-    end
-
-    Frontend -->|HTTP/JSON| API
-    API --> MW --> SVC_Slots & SVC_Priority & SVC_Avail & SVC_Audit & SVC_Users & SVC_Propagate
-    SVC_Slots & SVC_Priority & SVC_Avail & SVC_Audit & SVC_Users --> DB
-    SVC_Users --> Resend
-    Player -->|Heartbeat/Manifest| API
-    ProDooh --> SSP_API
-    ProDooh --> SSP_Cache
-    SSP_Cache --> Storage
+    BE -->|Loop Template JSON| Player
+    Frontend -->|API calls| Backend
 ```
 
-### Capas Modificadas
 
-| Capa | Componentes Afectados | Tipo de Cambio |
-|------|----------------------|----------------|
-| Database | tenants, screen_groups, screens, orders, users, audit_logs (new), user_invitations (new) | Schema changes |
-| Backend Services | PriorityEngine, ManifestGenerator, nuevos services | Logic changes + new |
-| API Controllers | OrderController, OrderLineController, TenantController, nuevos controllers | New endpoints + modifications |
-| Middleware | Nuevo RoleMiddleware actualizado | Permission enforcement |
-| Frontend | Orders, Screens, Groups, Users (new), Audit (new) | New features + modifications |
-| Player | ProDoohSource, nuevo SspCacheManager | New caching layer |
+### Jerarquía de Herencia de Configuración
 
----
+```mermaid
+graph TD
+    T[Tenant<br/>num_slots=10, ssp_slots=2, playlist_slots=1]
+    SG1[ScreenGroup A<br/>num_slots=12 override]
+    SG2[ScreenGroup B<br/>num_slots=NULL hereda 10]
+    S1[Screen 1<br/>num_slots=NULL hereda 12]
+    S2[Screen 2<br/>num_slots=8 override]
+    S3[Screen 3<br/>num_slots=NULL hereda 10]
+
+    T --> SG1
+    T --> SG2
+    SG1 --> S1
+    SG1 --> S2
+    SG2 --> S3
+```
 
 ## Components and Interfaces
 
-### 1. Backend — Nuevos Services
+### Backend: LoopTemplateGenerator (Reemplaza ManifestGenerator)
 
-#### SlotConfigService
-
-Responsable de resolver el `num_slots` efectivo para cualquier pantalla y calcular la capacidad por slot.
+Servicio principal que orquesta la generación del Loop Template para una pantalla.
 
 ```php
-interface SlotConfigServiceInterface
+<?php
+
+namespace App\Services;
+
+use App\Models\Screen;
+use App\Models\ScreenManifest;
+
+interface LoopTemplateGeneratorInterface
 {
-    /** Resuelve num_slots efectivo: Screen → ScreenGroup → Tenant → 10 */
-    public function resolveEffectiveNumSlots(Screen $screen): int;
+    /**
+     * Genera el Loop Template completo para una pantalla.
+     * Resuelve num_slots por herencia, ejecuta SlotAllocator,
+     * aplica RotationScheduler, y persiste en screen_manifests.
+     */
+    public function generate(Screen $screen): ScreenManifest;
 
-    /** Calcula spots por slot: floor(totalDailySpots / numSlots) */
-    public function calculateSlotCapacity(Screen $screen): int;
+    /**
+     * Regenera templates para todas las pantallas afectadas por un cambio.
+     * Debe completar en < 30 segundos.
+     */
+    public function regenerateAffected(array $screenIds): void;
 
-    /** Calcula target_spots "por slot" para una línea en una pantalla específica */
-    public function calculatePerSlotTargetSpots(Screen $screen): int;
+    /**
+     * Resuelve num_slots efectivo por herencia: Screen → ScreenGroup → Tenant → 10.
+     */
+    public function resolveNumSlots(Screen $screen): int;
 }
 ```
 
-#### SlotPropagationService
 
-Maneja la propagación "Aplicar a Todos" de forma atómica.
+### Backend: SlotAllocator
+
+Asigna líneas de orden a ad_slots según la jerarquía de prioridades.
 
 ```php
-interface SlotPropagationServiceInterface
+<?php
+
+namespace App\Services;
+
+use Illuminate\Support\Collection;
+
+interface SlotAllocatorInterface
 {
-    /** Propaga num_slots desde Tenant a todos los ScreenGroups y Screens */
-    public function propagateFromTenant(Tenant $tenant): PropagationResult;
+    /**
+     * Asigna líneas a ad_slots siguiendo waterfall: Patrocinio > Estandar ASAP > Estandar Uniform > Red_Interna.
+     *
+     * @param Collection $activeLines Líneas activas para esta pantalla
+     * @param int $adSlots Número de ad_slots disponibles
+     * @param int $loopsPerDay Iteraciones del loop por día (para calcular frequency)
+     * @return array<int, SlotAssignment> Mapa posición → asignación
+     */
+    public function allocate(Collection $activeLines, int $adSlots, int $loopsPerDay): array;
 
-    /** Propaga num_slots desde ScreenGroup a todas sus Screens */
-    public function propagateFromGroup(ScreenGroup $group): PropagationResult;
+    /**
+     * Valida que las líneas de Patrocinio no excedan ad_slots.
+     * Retorna null si OK, o un mensaje de error si hay exceso.
+     */
+    public function validatePatrocinioCapacity(Collection $patrocinioLines, int $adSlots): ?string;
+}
 
-    /** Cuenta entidades con overrides que serían sobreescritas */
-    public function countOverrides(Tenant|ScreenGroup $entity): int;
+/**
+ * Value Object que representa la asignación de un slot.
+ */
+class SlotAssignment
+{
+    public function __construct(
+        public readonly int $position,
+        public readonly string $type,        // 'ad' | 'ssp' | 'playlist'
+        public readonly string $strategy,    // 'fixed' | 'round_robin'
+        public readonly array $candidates,   // Lista ordenada de candidatos
+    ) {}
 }
 ```
 
-#### AvailabilityAnalyzer
+### Backend: RotationScheduler
 
-Analiza conflictos de disponibilidad al activar una OrderLine.
+Determina el orden de rotación round-robin y el ratio ASAP:Uniform entre iteraciones.
 
 ```php
+<?php
+
+namespace App\Services;
+
+use Illuminate\Support\Collection;
+
+interface RotationSchedulerInterface
+{
+    /**
+     * Calcula las frecuencias de rotación para candidatos de un slot compartido.
+     * Aplica ratio ASAP:Uniform según cantidad de creativos activos:
+     * - ≤10 creativos: 1 ASAP cada 2 Uniform
+     * - >10 creativos: 1 ASAP cada 3 Uniform
+     *
+     * @param Collection $candidates Líneas que comparten el slot
+     * @param int $totalActiveCreatives Total de creativos activos en la pantalla
+     * @return array<array{order_line_id: string, frequency: string}>
+     */
+    public function calculateRotation(Collection $candidates, int $totalActiveCreatives): array;
+
+    /**
+     * Distribuye líneas Red_Interna proporcionalmente al share_weight.
+     */
+    public function distributeByWeight(Collection $redInternaLines, int $availableSlots): array;
+}
+```
+
+
+### Backend: AvailabilityAnalyzer
+
+Calcula disponibilidad de inventario al momento de activación de una línea.
+
+```php
+<?php
+
+namespace App\Services;
+
+use App\Models\OrderLine;
+
 interface AvailabilityAnalyzerInterface
 {
     /**
-     * Analiza disponibilidad para una OrderLine que se va a activar.
-     * Retorna array de conflictos por pantalla/día.
+     * Analiza si el target_spots de la línea es alcanzable dado el inventario actual.
+     *
+     * @return AvailabilityResult
      */
-    public function analyze(OrderLine $line): AvailabilityReport;
+    public function analyze(OrderLine $line): AvailabilityResult;
+}
+
+class AvailabilityResult
+{
+    public function __construct(
+        public readonly bool $isSufficient,
+        public readonly int $targetSpots,
+        public readonly int $availableCapacity,
+        public readonly float $saturationPercent,
+        public readonly ?string $warningMessage,
+    ) {}
 }
 ```
 
-#### AuditService
+### Backend: AuditService
 
-Registra eventos de auditoría con diff old/new.
+Registra cambios sobre entidades del sistema usando estructura polimórfica.
 
 ```php
+<?php
+
+namespace App\Services;
+
+use Illuminate\Database\Eloquent\Model;
+
 interface AuditServiceInterface
 {
-    /** Registra un evento de creación */
-    public function logCreated(Model $entity, ?string $userId): void;
-
-    /** Registra un evento de modificación (detecta campos cambiados) */
-    public function logModified(Model $entity, array $original, ?string $userId): void;
-
-    /** Registra un evento de cambio de status */
-    public function logStatusChanged(Model $entity, string $oldStatus, string $newStatus, ?string $userId): void;
+    /**
+     * Registra un evento de auditoría.
+     *
+     * @param Model $auditable Entidad afectada (polimórfica)
+     * @param string $eventType Tipo: created|field_modified|status_changed|creative_added|creative_removed|spots_modified|name_changed|target_added|target_removed
+     * @param array|null $diff ['old_value' => mixed, 'new_value' => mixed, 'field' => string]
+     * @param string|null $userId ID del usuario que realiza el cambio
+     */
+    public function log(Model $auditable, string $eventType, ?array $diff = null, ?string $userId = null): void;
 }
 ```
 
-#### UserInvitationService
+### Backend: UserInvitationService
 
-Gestiona invitaciones y reset de contraseña vía Resend.
+Gestiona invitaciones y restablecimiento de contraseña.
 
 ```php
+<?php
+
+namespace App\Services;
+
 interface UserInvitationServiceInterface
 {
-    /** Crea invitación y envía email. Lanza exception si falla Resend. */
-    public function invite(string $email, string $role, string $tenantId, string $invitedBy): UserInvitation;
+    /**
+     * Envía invitación por email via Resend. Token válido 48h.
+     */
+    public function invite(string $email, string $role, string $tenantId): void;
 
-    /** Valida token y activa cuenta con contraseña */
-    public function acceptInvitation(string $token, string $password): User;
+    /**
+     * Completa el registro con token válido.
+     * @throws \App\Exceptions\InvitationExpiredException
+     */
+    public function completeRegistration(string $token, string $password): void;
 
-    /** Envía email de reset de contraseña */
-    public function sendPasswordReset(string $email): void;
+    /**
+     * Inicia flujo de reset de contraseña. Enlace válido 1h.
+     */
+    public function requestPasswordReset(string $email): void;
 
-    /** Valida token de reset y actualiza contraseña */
+    /**
+     * Completa el reset de contraseña.
+     * @throws \App\Exceptions\ResetTokenExpiredException
+     */
     public function resetPassword(string $token, string $newPassword): void;
 }
 ```
 
-### 2. Backend — Modificaciones al PriorityEngine
 
-El `PriorityEngine` actual se extiende con:
+### Player: LoopEngine (Reemplaza ManifestEngine lineal)
 
-1. **Slot-aware allocation**: La waterfall ahora opera por slots. Cada slot tiene capacidad = `floor(total_daily_spots / num_slots)`. Las OrderLines se asignan a slots (un anunciante por slot). Slots vacíos van a Playlist/SSP.
-
-2. **Ratio ASAP:uniform dinámico** en tier `estandar`:
-   - Cuenta total de creativos activos (con `active_dates` incluyendo hoy) de todas las OrderLines activas del tier `estandar` para la pantalla.
-   - Si ≤ 10 creativos: patrón 1:2 (1 spot ASAP cada 2 uniform).
-   - Si > 10 creativos: patrón 1:3 (1 spot ASAP cada 3 uniform).
-   - Si no hay ASAP: solo uniform con Bresenham.
-   - Si todas son ASAP: distribución por share_weight con Bresenham.
-
-3. **Patrocinio sin entrelazado**: Las líneas de patrocinio se procesan primero, sin aplicar ratio ASAP/uniform. Se distribuyen por daily_budget/share_weight directamente.
-
-```php
-// Nuevo método en PriorityEngine
-public function runWaterfallV2(Collection $lines, int $capacity, Screen $screen): array
-{
-    $numSlots = $this->slotConfig->resolveEffectiveNumSlots($screen);
-    $slotCapacity = (int) floor($capacity / $numSlots);
-
-    // Patrocinio: consume slots completos
-    // Estandar: consume slots con ratio ASAP:uniform
-    // Red_interna: consume slots restantes
-    // Remainder: SSP/Playlist split
-}
-
-public function calculateAsapUniformRatio(Screen $screen, Collection $estandarLines): array
-{
-    $activeCreativeCount = $this->countActiveCreatives($screen, $estandarLines);
-    $ratio = $activeCreativeCount <= 10 ? [1, 2] : [1, 3]; // [asap, uniform]
-    return $ratio;
-}
-```
-
-### 3. Backend — Nuevos API Endpoints
-
-| Método | Ruta | Descripción | Roles |
-|--------|------|-------------|-------|
-| PUT | `/admin/tenants/{id}/settings` | Actualizar num_slots y cache_flush_interval_hours | super_admin, tenant_admin |
-| POST | `/admin/tenants/{id}/propagate-slots` | Ejecutar "Aplicar a Todos" desde Tenant | super_admin, tenant_admin |
-| POST | `/admin/groups/{id}/propagate-slots` | Ejecutar "Aplicar a Todos" desde ScreenGroup | super_admin, tenant_admin |
-| GET | `/admin/tenants/{id}/slot-overrides-count` | Contar overrides antes de propagar | super_admin, tenant_admin |
-| GET | `/admin/groups/{id}/slot-overrides-count` | Contar overrides en grupo | super_admin, tenant_admin |
-| POST | `/admin/order-lines/{id}/check-availability` | Analizar disponibilidad pre-activación | super_admin, tenant_admin |
-| GET | `/admin/order-lines/{id}/per-slot-targets` | Calcular target_spots "por slot" por pantalla | super_admin, tenant_admin, trafficker |
-| GET | `/admin/orders/{id}/audit-log` | Historial de auditoría de Order | super_admin, tenant_admin |
-| GET | `/admin/order-lines/{id}/audit-log` | Historial de auditoría de OrderLine | super_admin, tenant_admin |
-| GET | `/admin/users` | Listar usuarios del tenant (o todos para super_admin) | super_admin, tenant_admin |
-| POST | `/admin/users/invite` | Crear invitación de usuario | super_admin, tenant_admin |
-| DELETE | `/admin/users/{id}` | Desactivar usuario | super_admin, tenant_admin |
-| POST | `/admin/users/reset-password` | Solicitar reset de contraseña | super_admin, tenant_admin |
-| POST | `/auth/accept-invitation` | Aceptar invitación (público con token) | público |
-| POST | `/auth/reset-password` | Resetear contraseña (público con token) | público |
-| POST | `/auth/forgot-password` | Solicitar reset (público) | público |
-| GET | `/admin/order-lines/{id}/affected-lines` | Líneas activas afectadas por cambio num_slots | super_admin, tenant_admin |
-
-### 4. Backend — Modificaciones a Endpoints Existentes
-
-| Endpoint | Cambio |
-|----------|--------|
-| `GET /admin/orders` | Retornar `starts_at`/`ends_at` calculados desde OrderLines (no de BD) |
-| `GET /admin/orders/{id}` | Incluir fechas calculadas como campos computados |
-| `POST /admin/orders` | Eliminar validación y campo `starts_at`/`ends_at` |
-| `PUT /admin/orders/{id}` | Eliminar validación y campo `starts_at`/`ends_at` |
-| `PUT /admin/order-lines/{id}` | Agregar lógica de audit log en status change |
-| `POST /device/heartbeat` | Incluir `cache_flush_interval_hours` en respuesta |
-| `PUT /admin/groups/{id}` | Aceptar campo `num_slots` |
-| `PUT /admin/screens/{id}` | Aceptar campo `num_slots` |
-
-### 5. Frontend — Nuevos Componentes
-
-#### Módulo de Configuración de Slots
-
-```
-admin-frontend/src/features/settings/
-├── api.ts                    # Endpoints de configuración y propagación
-├── hooks.ts                  # useSlotConfig, usePropagateSlots
-├── types.ts                  # TenantSettings, PropagationResult
-├── schemas.ts                # Zod schemas para validación
-├── components/
-│   ├── SlotConfigField.tsx   # Campo num_slots con herencia visual
-│   ├── PropagateDialog.tsx   # Diálogo de confirmación "Aplicar a Todos"
-│   └── AffectedLinesAlert.tsx # Alerta de líneas activas afectadas
-└── pages/
-    └── NetworkSettingsPage.tsx # Página de configuración de red
-```
-
-#### Módulo de Usuarios
-
-```
-admin-frontend/src/features/users/
-├── api.ts                    # CRUD usuarios, invite, reset
-├── hooks.ts                  # useUsers, useInviteUser, useResetPassword
-├── types.ts                  # User, Invitation, etc.
-├── schemas.ts                # Zod validación
-├── components/
-│   ├── UserList.tsx          # Tabla de usuarios
-│   ├── InviteUserDialog.tsx  # Modal de invitación
-│   └── UserRoleBadge.tsx     # Badge de rol con color
-└── pages/
-    ├── UsersPage.tsx         # Listado
-    ├── AcceptInvitationPage.tsx  # Establecer contraseña (público)
-    └── ForgotPasswordPage.tsx   # Reset de contraseña (público)
-```
-
-#### Módulo de Auditoría
-
-```
-admin-frontend/src/features/audit/
-├── api.ts                    # GET audit logs
-├── hooks.ts                  # useAuditLog
-├── types.ts                  # AuditEntry, EventType, etc.
-└── components/
-    ├── AuditLogModal.tsx     # Modal con historial
-    ├── AuditEntry.tsx        # Entrada individual con badge
-    └── AuditTriggerButton.tsx # Botón ícono reloj
-```
-
-#### Componentes Modificados
-
-- **OrderLineForm**: Agregar toggle "por Slot" condicional al tier `patrocinio`
-- **OrderForm**: Eliminar campos `starts_at`/`ends_at`, mostrar fechas calculadas como read-only
-- **AvailabilityModal**: Nuevo modal informativo pre-activación
-- **Header/Navigation**: Filtrar secciones según rol (trafficker ve solo Orders/Content)
-- **ScreenGroupForm**: Agregar campo `num_slots`
-- **ScreenForm**: Agregar campo `num_slots`
-
-### 6. Player — SspCacheManager
-
-Nuevo módulo que encapsula la lógica de caché de archivos SSP.
+El LoopEngine reproduce el template en ciclo continuo, rotando candidatos localmente.
 
 ```typescript
-// player/src/cache/SspCacheManager.ts
+/**
+ * LoopEngine — Reproduce un Loop Template en ciclo continuo.
+ *
+ * Diferencias con ManifestEngine anterior:
+ * - No recibe una secuencia lineal de 5.760 items
+ * - Recibe N slots (típicamente 10) con candidatos por slot
+ * - Rota candidatos localmente usando round-robin entre iteraciones
+ * - El loop se repite indefinidamente: slot[0]→slot[N-1]→slot[0]...
+ * - Soporta swap atómico cuando llega nueva versión del template
+ */
 
-export interface SspCacheConfig {
-  cacheDir: string;
-  flushIntervalHours: number;
-  downloadTimeoutMs: number; // 30000
+export interface LoopSlot {
+  position: number;
+  type: 'ad' | 'ssp' | 'playlist';
+  strategy: 'fixed' | 'round_robin';
+  candidates: SlotCandidate[];
+  /** Solo para SSP */
+  provider?: string;
+  config?: SspConfig;
 }
 
-export interface SspCacheEntry {
-  url: string;          // Clave: URL completa exacta
-  filePath: string;     // Ruta local del archivo cacheado
-  contentId: string;    // ID para integración con CachedFileProvider
-  sizeBytes: number;
-  cachedAt: number;     // timestamp ms
-  lastAccessed: number; // timestamp ms
+export interface SlotCandidate {
+  order_line_id?: string;
+  creative_id?: string;
+  playlist_item_id?: string;
+  asset_url: string;
+  checksum_sha256: string;
+  frequency?: string; // e.g., "1/2", "1/3"
 }
 
-export interface SspCacheManager {
-  /** Obtiene archivo de caché o descarga. Retorna path local o null si falla. */
-  getOrDownload(url: string): Promise<string | null>;
+export interface SspConfig {
+  api_key: string;
+  network_id: string;
+  venue_id: string;
+}
 
-  /** Registra acceso a un archivo cacheado (actualiza lastAccessed) */
-  recordAccess(url: string): void;
+export interface LoopTemplate {
+  version: string;
+  generated_at: string;
+  loop_config: {
+    num_slots: number;
+    slot_duration_seconds: number;
+    loop_duration_seconds: number;
+    loops_per_day: number;
+  };
+  slots: LoopSlot[];
+  sync_interval_seconds: number;
+  cache_flush_interval_hours: number;
+}
 
-  /** Ejecuta flush periódico basado en cache_flush_interval_hours */
-  checkPeriodicFlush(): Promise<void>;
+export interface LoopEngineOptions {
+  template: LoopTemplate;
+  onSlotStart?: (slot: LoopSlot, candidate: SlotCandidate, iteration: number) => void;
+  onSlotComplete?: (slot: LoopSlot, candidate: SlotCandidate, result: 'success' | 'failed') => void;
+  sspPrefetcher?: SspPrefetcher;
+  playbackFn?: (candidate: SlotCandidate, durationMs: number) => Promise<'success' | 'failed'>;
+}
 
-  /** Registra entradas en CachedFileProvider para LRU global */
-  syncWithStorageManager(): void;
+export class LoopEngine {
+  private template: LoopTemplate;
+  private iteration: number = 0;
+  private currentSlotIndex: number = 0;
+  private running: boolean = false;
+  private pendingTemplate: LoopTemplate | null = null;
+  /** Tracks round-robin offset per slot position */
+  private rotationOffsets: Map<number, number> = new Map();
 
-  /** Elimina entrada de caché por URL */
-  evict(url: string): Promise<void>;
+  constructor(options: LoopEngineOptions) { /* ... */ }
+
+  /** Inicia el loop continuo */
+  async run(): Promise<void> { /* ... */ }
+
+  /** Detiene el loop tras el slot actual */
+  stop(): void { /* ... */ }
+
+  /** Swap atómico: nueva template se aplica al inicio del siguiente loop */
+  updateTemplate(newTemplate: LoopTemplate): void { /* ... */ }
+
+  /**
+   * Selecciona el candidato para un slot en la iteración actual.
+   * - strategy: 'fixed' → siempre candidates[0]
+   * - strategy: 'round_robin' → offset basado en iteration y frequency
+   */
+  private selectCandidate(slot: LoopSlot): SlotCandidate { /* ... */ }
 }
 ```
 
-#### Flujo de Reproducción SSP con Caché
 
-```mermaid
-sequenceDiagram
-    participant Loop as PlaybackLoop
-    participant Source as ProDoohSource
-    participant Cache as SspCacheManager
-    participant Storage as StorageManager
-    participant SSP as SSP API
+### Player: SspPrefetcher (Ajuste para slots)
 
-    Loop->>Source: prefetch()
-    Source->>SSP: POST /v1/ad
-    SSP-->>Source: {media: url, print_id, ...}
-    Source->>Cache: getOrDownload(url)
-    alt Cache Hit
-        Cache-->>Source: localPath
-        Cache->>Cache: recordAccess(url)
-    else Cache Miss
-        Cache->>SSP: GET url (timeout 30s)
-        alt Download OK
-            Cache->>Cache: store file + register in CachedFileProvider
-            Cache-->>Source: localPath
-        else Download Fail
-            Cache-->>Source: null (use remote URL)
-        end
-    end
-    Source-->>Loop: PreparedContent (localPath or remoteUrl)
-    Loop->>Loop: play content
-    Loop->>Source: confirmPlay(content) — usa print_id más reciente
+El SspPrefetcher existente se mantiene, pero se ajusta el timing para slot-based playback.
+
+```typescript
+/**
+ * SspPrefetcher — Pre-carga contenido SSP antes de que el slot SSP se reproduzca.
+ *
+ * Cambio: en vez de prefetch 3s antes del final del item anterior,
+ * ahora prefetch al inicio del slot anterior (tiene slot_duration_seconds completos).
+ */
+export interface SspPrefetcher {
+  /** Inicia pre-carga del contenido SSP. Llama a ProDoohSource.prefetch(). */
+  prefetch(durationSeconds: number): Promise<void>;
+  /** Retorna true si hay contenido SSP listo para reproducir */
+  isReady(): boolean;
+  /** Retorna el contenido pre-cargado */
+  getContent(): { assetUrl: string; durationSeconds: number; printId: string } | null;
+  /** Limpia el contenido después de reproducirlo */
+  cleanup(): void;
+}
 ```
-
----
 
 ## Data Models
 
 ### Migraciones de Base de Datos
 
-#### Migración 1: Agregar `num_slots` a tenants, screen_groups, screens
+#### 1. Modificar tabla `tenants` — Agregar configuración de loop
 
 ```php
-// add_num_slots_to_hierarchy.php
 Schema::table('tenants', function (Blueprint $table) {
-    $table->integer('num_slots')->default(10);
-    $table->integer('cache_flush_interval_hours')->default(24);
+    $table->unsignedSmallInteger('num_slots')->default(10);
+    $table->unsignedSmallInteger('ssp_slots')->default(2);
+    $table->unsignedSmallInteger('playlist_slots')->default(1);
+    $table->unsignedSmallInteger('sync_interval_seconds')->default(240);
+    $table->unsignedSmallInteger('cache_flush_interval_hours')->default(24);
 });
-
-Schema::table('screen_groups', function (Blueprint $table) {
-    $table->integer('num_slots')->nullable();
-});
-
-Schema::table('screens', function (Blueprint $table) {
-    $table->integer('num_slots')->nullable();
-});
-
-// CHECK constraints
-DB::statement('ALTER TABLE tenants ADD CONSTRAINT tenants_num_slots_check CHECK (num_slots BETWEEN 1 AND 100)');
-DB::statement('ALTER TABLE tenants ADD CONSTRAINT tenants_cache_flush_check CHECK (cache_flush_interval_hours BETWEEN 1 AND 720)');
-DB::statement('ALTER TABLE screen_groups ADD CONSTRAINT sg_num_slots_check CHECK (num_slots IS NULL OR num_slots BETWEEN 1 AND 100)');
-DB::statement('ALTER TABLE screens ADD CONSTRAINT screens_num_slots_check CHECK (num_slots IS NULL OR num_slots BETWEEN 1 AND 100)');
 ```
 
-#### Migración 2: Eliminar `starts_at`/`ends_at` de orders
+#### 2. Modificar tabla `screen_groups` — Override de num_slots
 
 ```php
-// remove_dates_from_orders.php
+Schema::table('screen_groups', function (Blueprint $table) {
+    $table->unsignedSmallInteger('num_slots')->nullable();
+});
+```
+
+#### 3. Modificar tabla `screens` — Override de num_slots
+
+```php
+Schema::table('screens', function (Blueprint $table) {
+    $table->unsignedSmallInteger('num_slots')->nullable();
+});
+```
+
+#### 4. Modificar tabla `order_lines` — Slots purchased
+
+```php
+Schema::table('order_lines', function (Blueprint $table) {
+    $table->unsignedSmallInteger('slots_purchased')->nullable();
+    $table->boolean('by_slot')->default(false);
+});
+```
+
+
+#### 5. Modificar tabla `orders` — Eliminar columnas de fecha
+
+```php
 Schema::table('orders', function (Blueprint $table) {
-    DB::statement('ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_dates_check');
-    $table->dropIndex(['starts_at', 'ends_at']);
     $table->dropColumn(['starts_at', 'ends_at']);
 });
 ```
 
-#### Migración 3: Agregar rol trafficker y campo `is_active`
+#### 6. Modificar tabla `users` — Agregar is_active y rol trafficker
 
 ```php
-// update_users_for_trafficker.php
-// El campo role ya es string; verificar que soporte 'trafficker'
 Schema::table('users', function (Blueprint $table) {
-    $table->boolean('is_active')->default(true)->after('role');
+    $table->boolean('is_active')->default(true);
+    // El campo 'role' ya existe como string; se actualiza el enum check constraint
+    // para incluir 'trafficker': super_admin | tenant_admin | trafficker
 });
-
-// Update existing role enum (PostgreSQL no tiene enums de Laravel, role es string)
-// No se necesita migración de tipo; el campo 'role' ya es varchar
 ```
 
-#### Migración 4: Crear tabla `audit_logs`
+#### 7. Nueva tabla: `audit_logs`
 
 ```php
-// create_audit_logs_table.php
 Schema::create('audit_logs', function (Blueprint $table) {
     $table->uuid('id')->primary();
-    $table->string('auditable_type');      // 'App\Models\Order', 'App\Models\OrderLine'
+    $table->string('auditable_type');    // App\Models\Order, App\Models\OrderLine, etc.
     $table->uuid('auditable_id');
-    $table->uuid('user_id')->nullable();   // nullable para acciones del sistema
-    $table->string('event_type');          // created, field_modified, status_changed, etc.
-    $table->jsonb('diff');                 // { old: {...}, new: {...} }
-    $table->uuid('tenant_id');
-    $table->timestamp('created_at')->useCurrent();
+    $table->uuid('user_id')->nullable();
+    $table->string('event_type');        // created, field_modified, status_changed, etc.
+    $table->jsonb('diff')->nullable();   // {field, old_value, new_value}
+    $table->timestamp('created_at');
 
     $table->index(['auditable_type', 'auditable_id']);
-    $table->index('tenant_id');
+    $table->index('user_id');
     $table->index('created_at');
-    $table->foreign('tenant_id')->references('id')->on('tenants')->onDelete('cascade');
+
+    $table->foreign('user_id')->references('id')->on('users')->nullOnDelete();
 });
 ```
 
-#### Migración 5: Crear tabla `user_invitations`
+#### 8. Nueva tabla: `user_invitations`
 
 ```php
-// create_user_invitations_table.php
 Schema::create('user_invitations', function (Blueprint $table) {
     $table->uuid('id')->primary();
     $table->uuid('tenant_id');
     $table->string('email');
-    $table->string('role');               // 'tenant_admin' | 'trafficker'
+    $table->string('role');              // tenant_admin | trafficker
     $table->string('token', 64)->unique();
     $table->timestamp('expires_at');
     $table->timestamp('accepted_at')->nullable();
-    $table->uuid('invited_by');
-    $table->timestamps();
+    $table->timestamp('created_at');
 
-    $table->foreign('tenant_id')->references('id')->on('tenants')->onDelete('cascade');
-    $table->foreign('invited_by')->references('id')->on('users')->onDelete('cascade');
-    $table->index(['email', 'tenant_id']);
-    $table->index('token');
+    $table->foreign('tenant_id')->references('id')->on('tenants')->cascadeOnDelete();
 });
 ```
 
-#### Migración 6: Crear tabla `password_resets`
+#### 9. Nueva tabla: `password_resets`
 
 ```php
-// create_password_resets_table.php
 Schema::create('password_resets', function (Blueprint $table) {
     $table->uuid('id')->primary();
     $table->uuid('user_id');
     $table->string('token', 64)->unique();
     $table->timestamp('expires_at');
     $table->timestamp('used_at')->nullable();
-    $table->timestamp('created_at')->useCurrent();
+    $table->timestamp('created_at');
 
-    $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade');
-    $table->index('token');
+    $table->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
 });
 ```
 
-#### Migración 7: Agregar campo `by_slot` a order_lines
 
-```php
-// add_by_slot_to_order_lines.php
-Schema::table('order_lines', function (Blueprint $table) {
-    $table->boolean('by_slot')->default(false)->after('target_spots');
-});
-```
+### Formato JSON del Loop Template (screen_manifests.items)
 
-### Modelos Eloquent — Cambios
-
-#### Tenant (modificado)
-
-```php
-// Nuevos fillable: 'num_slots', 'cache_flush_interval_hours'
-// Nuevas relaciones: auditLogs()
-protected $fillable = [
-    // ... existentes ...
-    'num_slots',
-    'cache_flush_interval_hours',
-];
-```
-
-#### ScreenGroup (modificado)
-
-```php
-// Nuevo fillable: 'num_slots'
-protected $fillable = ['tenant_id', 'name', 'duration_seconds', 'schedule', 'num_slots'];
-```
-
-#### Screen (modificado)
-
-```php
-// Nuevo fillable: 'num_slots'
-protected $fillable = [/* ... existentes ... */, 'num_slots'];
-```
-
-#### OrderLine (modificado)
-
-```php
-// Nuevo fillable: 'by_slot'
-// Nuevo cast: 'by_slot' => 'boolean'
-protected $fillable = [/* ... existentes ... */, 'by_slot'];
-```
-
-#### Order (modificado)
-
-```php
-// Eliminar: starts_at, ends_at de $fillable
-// Eliminar: casts de starts_at, ends_at
-// Agregar: accessor computado
-
-protected $appends = ['starts_at', 'ends_at'];
-
-public function getStartsAtAttribute(): ?string
+```json
 {
-    return $this->orderLines()->min('starts_at');
-}
-
-public function getEndsAtAttribute(): ?string
-{
-    return $this->orderLines()->max('ends_at');
-}
-```
-
-#### AuditLog (nuevo)
-
-```php
-class AuditLog extends Model
-{
-    use HasUuids;
-
-    public $incrementing = false;
-    protected $keyType = 'string';
-    const UPDATED_AT = null;
-
-    protected $fillable = [
-        'auditable_type', 'auditable_id', 'user_id',
-        'event_type', 'diff', 'tenant_id',
-    ];
-
-    protected function casts(): array
+  "version": "sha256:a1b2c3d4e5f6...",
+  "generated_at": "2025-01-15T10:30:00Z",
+  "loop_config": {
+    "num_slots": 10,
+    "slot_duration_seconds": 10,
+    "loop_duration_seconds": 100,
+    "loops_per_day": 576
+  },
+  "slots": [
     {
-        return ['diff' => 'array'];
-    }
-
-    public function auditable()
+      "position": 0,
+      "type": "ad",
+      "strategy": "fixed",
+      "candidates": [
+        {
+          "order_line_id": "uuid-patrocinio-1",
+          "creative_id": "uuid-creative-1",
+          "asset_url": "/api/device/content/uuid/file",
+          "checksum_sha256": "abc123..."
+        }
+      ]
+    },
     {
-        return $this->morphTo();
-    }
-
-    public function user()
+      "position": 1,
+      "type": "ad",
+      "strategy": "round_robin",
+      "candidates": [
+        {
+          "order_line_id": "uuid-estandar-A",
+          "creative_id": "uuid-creative-A",
+          "asset_url": "/api/device/content/uuid-A/file",
+          "checksum_sha256": "def456...",
+          "frequency": "1/2"
+        },
+        {
+          "order_line_id": "uuid-estandar-B",
+          "creative_id": "uuid-creative-B",
+          "asset_url": "/api/device/content/uuid-B/file",
+          "checksum_sha256": "ghi789...",
+          "frequency": "1/2"
+        }
+      ]
+    },
     {
-        return $this->belongsTo(User::class);
+      "position": 7,
+      "type": "ssp",
+      "strategy": "fixed",
+      "provider": "prodooh",
+      "config": {
+        "api_key": "encrypted-ref",
+        "network_id": "net-123",
+        "venue_id": "venue-456"
+      },
+      "candidates": []
+    },
+    {
+      "position": 8,
+      "type": "ssp",
+      "strategy": "fixed",
+      "provider": "prodooh",
+      "config": {
+        "api_key": "encrypted-ref",
+        "network_id": "net-123",
+        "venue_id": "venue-456"
+      },
+      "candidates": []
+    },
+    {
+      "position": 9,
+      "type": "playlist",
+      "strategy": "round_robin",
+      "candidates": [
+        {
+          "playlist_item_id": "uuid-pl-1",
+          "asset_url": "/api/device/content/uuid-pl-1/file",
+          "checksum_sha256": "jkl012..."
+        },
+        {
+          "playlist_item_id": "uuid-pl-2",
+          "asset_url": "/api/device/content/uuid-pl-2/file",
+          "checksum_sha256": "mno345..."
+        }
+      ]
     }
+  ],
+  "sync_interval_seconds": 240,
+  "cache_flush_interval_hours": 24
 }
 ```
 
-#### UserInvitation (nuevo)
 
-```php
-class UserInvitation extends Model
-{
-    use HasUuids;
+### Distribución de Posiciones dentro del Loop
 
-    public $incrementing = false;
-    protected $keyType = 'string';
+Los slots se organizan en rangos predecibles:
 
-    protected $fillable = [
-        'tenant_id', 'email', 'role', 'token',
-        'expires_at', 'accepted_at', 'invited_by',
-    ];
+| Rango | Tipo | Ejemplo (num_slots=10, ssp=2, playlist=1) |
+|-------|------|------------------------------------------|
+| 0 .. ad_slots-1 | ad | Posiciones 0-6 (7 ad_slots) |
+| ad_slots .. ad_slots+ssp_slots-1 | ssp | Posiciones 7-8 |
+| ad_slots+ssp_slots .. num_slots-1 | playlist | Posición 9 |
 
-    protected function casts(): array
-    {
-        return [
-            'expires_at' => 'datetime',
-            'accepted_at' => 'datetime',
-        ];
-    }
+## API Changes
 
-    public function isExpired(): bool
-    {
-        return now()->isAfter($this->expires_at);
-    }
+### Endpoints Nuevos
 
-    public function isAccepted(): bool
-    {
-        return !is_null($this->accepted_at);
-    }
+| Método | Path | Descripción |
+|--------|------|-------------|
+| PUT | `/api/admin/tenants/{id}/loop-config` | Configurar num_slots, ssp_slots, playlist_slots |
+| PUT | `/api/admin/tenants/{id}/network-settings` | Configurar sync_interval, cache_flush |
+| POST | `/api/admin/tenants/{id}/loop-config/propagate` | Propagar num_slots a descendientes |
+| GET | `/api/admin/order-lines/{id}/availability` | Calcular disponibilidad antes de activar |
+| GET | `/api/admin/{auditableType}/{id}/audit-logs` | Obtener historial de auditoría |
+| POST | `/api/admin/users/invite` | Enviar invitación por email |
+| POST | `/api/auth/register` | Completar registro con token |
+| POST | `/api/auth/forgot-password` | Solicitar reset de contraseña |
+| POST | `/api/auth/reset-password` | Completar reset de contraseña |
+
+### Endpoints Modificados
+
+| Método | Path | Cambio |
+|--------|------|--------|
+| POST | `/api/admin/orders` | Elimina starts_at, ends_at del body |
+| GET | `/api/admin/orders/{id}` | starts_at/ends_at calculados dinámicamente |
+| PUT | `/api/admin/order-lines/{id}` | Acepta slots_purchased, by_slot para patrocinio |
+| PATCH | `/api/admin/order-lines/{id}/activate` | Ejecuta AvailabilityAnalyzer antes |
+| GET | `/api/device/manifest` | Retorna Loop Template JSON (nuevo formato) |
+
+### Contratos TypeScript (contracts/)
+
+```typescript
+// contracts/src/loop-template.ts
+
+export interface LoopTemplateResponse {
+  version: string;
+  generated_at: string;
+  loop_config: LoopConfig;
+  slots: LoopSlotContract[];
+  sync_interval_seconds: number;
+  cache_flush_interval_hours: number;
+}
+
+export interface LoopConfig {
+  num_slots: number;
+  slot_duration_seconds: number;
+  loop_duration_seconds: number;
+  loops_per_day: number;
+}
+
+export interface LoopSlotContract {
+  position: number;
+  type: 'ad' | 'ssp' | 'playlist';
+  strategy: 'fixed' | 'round_robin';
+  candidates: CandidateContract[];
+  provider?: string;
+  config?: Record<string, string>;
+}
+
+export interface CandidateContract {
+  order_line_id?: string;
+  creative_id?: string;
+  playlist_item_id?: string;
+  asset_url: string;
+  checksum_sha256: string;
+  frequency?: string;
 }
 ```
 
-### Diagrama Entidad-Relación (cambios)
-
-```mermaid
-erDiagram
-    TENANT {
-        uuid id PK
-        string name
-        int num_slots "default 10, 1-100"
-        int cache_flush_interval_hours "default 24, 1-720"
-        int default_duration_seconds
-    }
-
-    SCREEN_GROUP {
-        uuid id PK
-        uuid tenant_id FK
-        string name
-        int num_slots "nullable, 1-100"
-        int duration_seconds
-    }
-
-    SCREEN {
-        uuid id PK
-        uuid tenant_id FK
-        uuid group_id FK
-        string name
-        int num_slots "nullable, 1-100"
-    }
-
-    ORDER {
-        uuid id PK
-        uuid tenant_id FK
-        string name
-        string advertiser_name
-        string status
-        string starts_at "COMPUTED from lines"
-        string ends_at "COMPUTED from lines"
-    }
-
-    ORDER_LINE {
-        uuid id PK
-        uuid order_id FK
-        string name
-        string priority_tier
-        boolean by_slot "default false"
-        int target_spots
-        string delivery_pace
-        int share_weight
-    }
-
-    AUDIT_LOG {
-        uuid id PK
-        string auditable_type
-        uuid auditable_id
-        uuid user_id FK
-        string event_type
-        jsonb diff
-        uuid tenant_id FK
-    }
-
-    USER_INVITATION {
-        uuid id PK
-        uuid tenant_id FK
-        string email
-        string role
-        string token
-        timestamp expires_at
-        uuid invited_by FK
-    }
-
-    USER {
-        uuid id PK
-        uuid tenant_id FK
-        string email
-        string role "super_admin|tenant_admin|trafficker"
-        boolean is_active "default true"
-    }
-
-    TENANT ||--o{ SCREEN_GROUP : has
-    SCREEN_GROUP ||--o{ SCREEN : has
-    TENANT ||--o{ ORDER : has
-    ORDER ||--o{ ORDER_LINE : has
-    TENANT ||--o{ AUDIT_LOG : has
-    TENANT ||--o{ USER_INVITATION : has
-    TENANT ||--o{ USER : has
-    USER ||--o{ AUDIT_LOG : authored
-```
-
----
 
 ## Correctness Properties
 
-*A property is a characteristic or behavior that should hold true across all valid executions of a system — essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
+*Una propiedad es una característica o comportamiento que debe cumplirse en todas las ejecuciones válidas de un sistema — esencialmente, una declaración formal sobre lo que el sistema debe hacer. Las propiedades sirven como puente entre especificaciones legibles por humanos y garantías de corrección verificables por máquinas.*
 
-### Property 1: num_slots Validation Range
+### Property 1: Validación de rango en campos de configuración de loop
 
-*For any* integer value `v`, the system SHALL accept `v` as a valid `num_slots` if and only if `1 ≤ v ≤ 100` and `v` is an integer. This applies uniformly at Tenant, ScreenGroup, and Screen levels.
+*For any* campo de configuración numérica (num_slots, ssp_slots, playlist_slots, sync_interval_seconds, cache_flush_interval_hours) y *for any* valor entero, el backend debe aceptar el valor si y solo si está dentro del rango permitido para ese campo (num_slots: [1,100], ssp_slots: [0, num_slots], playlist_slots: [0, num_slots], sync_interval_seconds: [30,900], cache_flush_interval_hours: [1,720]).
 
-**Validates: Requirements 1.1, 1.2, 1.3, 1.8**
+**Validates: Requirements 1.1, 1.2, 1.3, 8.1, 8.2**
 
-### Property 2: num_slots Inheritance Resolution
+### Property 2: Invariante de ad_slots y restricción mínima
 
-*For any* Screen with a hierarchy Tenant→ScreenGroup→Screen, the effective `num_slots` SHALL equal: Screen.num_slots if not null, else ScreenGroup.num_slots if not null, else Tenant.num_slots if not null, else 10. This forms a strict priority chain where the most specific non-null value wins.
+*For any* configuración válida de loop (num_slots, ssp_slots, playlist_slots), ad_slots debe ser exactamente igual a num_slots - ssp_slots - playlist_slots, y la configuración debe ser rechazada si ad_slots resulta menor que 1.
 
-**Validates: Requirements 1.5, 1.6, 1.7**
+**Validates: Requirements 1.4, 1.5**
 
-### Property 3: Slot Capacity Calculation
+### Property 3: Herencia de num_slots por jerarquía
 
-*For any* Screen with `total_daily_spots = T` and effective `num_slots = N`, the capacity per slot SHALL equal `floor(T / N)`.
+*For any* pantalla en el sistema, el num_slots efectivo debe resolverse siguiendo la cadena: valor explícito de Screen (si no es null) → valor explícito de ScreenGroup padre (si no es null) → valor del Tenant → 10 (default global).
 
-**Validates: Requirements 1.4, 6.2**
+**Validates: Requirements 1.6**
 
-### Property 4: Propagation Completeness
+### Property 4: Propagación selectiva de num_slots
 
-*For any* Tenant (or ScreenGroup) with a set of child entities, executing "Aplicar a Todos" SHALL result in every child entity having its `num_slots` field set to the parent's current `num_slots` value, with no child retaining a different value.
+*For any* operación "Aplicar a todos" de num_slots en un Tenant, solo los ScreenGroups y Screens que NO tienen un override explícito deben ser actualizados al nuevo valor; los que tienen override deben mantener su valor original.
 
-**Validates: Requirements 2.1, 2.2**
+**Validates: Requirements 1.8**
 
-### Property 5: Target Spots Immutability After Activation
+### Property 5: Invariante estructural del Loop Template
 
-*For any* OrderLine that has already been activated (status transitioned to "active"), its `target_spots` value SHALL remain unchanged regardless of subsequent modifications to `num_slots` at any level. This holds for lines that go active→paused→active as well.
+*For any* Loop Template generado para una pantalla, el template debe contener exactamente num_slots (resuelto por herencia) posiciones, donde las posiciones [0..ad_slots-1] son de tipo "ad", las posiciones [ad_slots..ad_slots+ssp_slots-1] son de tipo "ssp", y las posiciones [ad_slots+ssp_slots..num_slots-1] son de tipo "playlist". Cada slot debe tener: tipo, posición ordinal, al menos un candidato (excepto ssp que puede tener 0), y estrategia de rotación.
 
-**Validates: Requirements 3.4, 3.5**
+**Validates: Requirements 2.1, 2.8, 2.12**
 
-### Property 6: Unused Slot Capacity Goes to Filler
 
-*For any* Screen where a slot has no active OrderLines consuming it (or OrderLines consuming less than slot capacity), the unconsumed capacity SHALL be assigned entirely to the Playlist/SSP pool, split as `floor(remainder / 2)` to SSP and the rest to Playlist, without redistribution to other advertisers' slots.
+### Property 6: Asignación waterfall con prioridad estricta
 
-**Validates: Requirements 4.1, 4.2, 4.3, 4.5**
+*For any* conjunto de líneas activas de diferentes tiers para una pantalla, el SlotAllocator debe asignar slots siguiendo estrictamente: Patrocinio primero (con slots_purchased posiciones fijas garantizadas), luego Estandar, luego Red_Interna. Si la suma de slots_purchased de Patrocinio excede ad_slots, la última activación debe ser rechazada. Si Patrocinio + Estandar llenan todos los ad_slots, Red_Interna no debe aparecer.
 
-### Property 7: Waterfall Tier Strict Ordering
+**Validates: Requirements 2.2, 2.3, 2.4, 2.9**
 
-*For any* manifest generated by the PriorityEngine, all spots from tier `patrocinio` SHALL appear allocated before any spot from `estandar`, and all `estandar` spots before any `red_interna` spot. The SSP/Playlist filler SHALL only receive capacity remaining after all tiers are processed.
+### Property 7: Round-robin cuando hay sobre-suscripción de un tier
 
-**Validates: Requirements 5.1, 5.2**
+*For any* situación donde el número de líneas activas de un mismo tier excede los ad_slots restantes para ese tier, el template debe asignar múltiples candidatos al mismo slot con estrategia "round_robin", y la lista de candidatos debe incluir todas las líneas del tier que comparten ese slot.
 
-### Property 8: ASAP:Uniform Ratio Determined by Active Creative Count
+**Validates: Requirements 2.5**
 
-*For any* Screen and its active `estandar` OrderLines, if the total count of active creatives (with `active_dates` including today) is ≤ 10, the interleaving pattern SHALL be 1 ASAP spot for every 2 uniform spots; if > 10, the pattern SHALL be 1 ASAP for every 3 uniform. When no ASAP lines exist, all spots are uniform; when all are ASAP, distribution is by share_weight without ratio.
+### Property 8: Ratio de rotación ASAP:Uniform
 
-**Validates: Requirements 5.3, 5.4, 5.5, 5.6, 5.7**
+*For any* pantalla con líneas Estandar ASAP y Uniform activas simultáneamente: si el total de creativos activos es ≤10, la frecuencia ASAP debe ser 1 cada 2 Uniform; si >10, debe ser 1 cada 3 Uniform. Si solo existen líneas ASAP (sin Uniform), deben distribuirse por share_weight sin aplicar ratio.
 
-### Property 9: Order Dates Computed from Lines
+**Validates: Requirements 2.6, 2.7, 2.15**
 
-*For any* Order with at least one OrderLine, `starts_at` SHALL equal the minimum `starts_at` across all its OrderLines, and `ends_at` SHALL equal the maximum `ends_at` across all its OrderLines. For Orders with no OrderLines, both SHALL be null.
+### Property 9: Distribución proporcional de Red_Interna por share_weight
 
-**Validates: Requirements 7.1, 7.2, 7.7**
+*For any* conjunto de líneas Red_Interna asignadas a slots restantes, el número de apariciones de cada línea debe ser proporcional a su share_weight relativo al total de weights del grupo.
 
-### Property 10: Availability Conflict Detection
+**Validates: Requirements 2.10**
 
-*For any* OrderLine being activated, the availability analysis SHALL detect a conflict for a (screen, day) pair if and only if the sum of `target_spots` of all existing active OrderLines targeting that screen on that day, plus the `target_spots` of the line being activated, exceeds `total_daily_spots` of that screen. The calculation uses full `total_daily_spots` (not net of SSP/Playlist).
+### Property 10: Integridad del hash de versión
 
-**Validates: Requirements 8.1, 8.7, 8.8**
+*For any* Loop Template generado, el campo version debe ser exactamente el hash SHA-256 del contenido serializado del template (excluyendo el propio campo version). Si el contenido del template no cambia, el hash no debe cambiar; si cambia cualquier dato, el hash debe ser diferente.
 
-### Property 11: Trafficker Permission Enforcement
+**Validates: Requirements 2.13**
 
-*For any* request from a user with role `trafficker`: CRUD operations on Orders, OrderLines, and Creatives within their own tenant SHALL succeed; attempts to activate/pause orders, access network configuration, manage users, or access resources from another tenant SHALL be rejected with HTTP 403.
+### Property 11: Pace forzado por tier
 
-**Validates: Requirements 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 14.3, 14.4, 14.6**
+*For any* OrderLine, si priority_tier es "patrocinio" o "red_interna", el delivery_pace almacenado debe ser "uniform" independientemente del valor enviado. Si priority_tier es "estandar", el delivery_pace almacenado debe ser el valor enviado por el usuario (asap o uniform).
 
-### Property 12: Audit Log Captures All Modifications
+**Validates: Requirements 3.1, 3.2, 3.3**
 
-*For any* create, update, or status change operation on an Order or OrderLine, the system SHALL create exactly one AuditLog entry containing: the correct `auditable_type`/`auditable_id`, the acting user's ID, the appropriate `event_type`, and a `diff` JSON with `old` (null for creation) and `new` containing only changed fields with their before/after values.
+### Property 12: Cálculo de target_spots por slot
 
-**Validates: Requirements 11.1, 11.2, 11.4, 11.5, 11.6**
+*For any* OrderLine de Patrocinio con by_slot=true y slots_purchased=N, el target_spots debe ser exactamente N × loops_per_day, donde loops_per_day = ventana_operativa_segundos / (num_slots × slot_duration_seconds).
 
-### Property 13: SSP Cache URL Identity
+**Validates: Requirements 4.3**
 
-*For any* URL string returned by the SSP API, the Player SHALL use the exact URL string (including query parameters) as cache key. A subsequent SSP response with the same URL string SHALL result in a cache hit (no re-download), and a response with a different URL string (even if pointing to the same resource) SHALL be treated as a cache miss.
 
-**Validates: Requirements 13.2, 13.3**
+### Property 13: Fechas de orden derivadas de líneas
 
-### Property 14: SSP Cache Uses Latest print_id for PoP
+*For any* orden con al menos una OrderLine, starts_at debe ser igual al MIN(starts_at) de todas sus OrderLines, y ends_at debe ser igual al MAX(ends_at) de todas sus OrderLines. Para órdenes sin líneas, ambas fechas deben ser null.
 
-*For any* cached SSP media file that is played in response to a new SSP response, the Proof of Play SHALL be reported using the `print_id` from the most recent SSP response that referenced that URL, not the `print_id` from when the file was originally cached.
+**Validates: Requirements 5.2**
 
-**Validates: Requirements 13.4**
+### Property 14: Rechazo de activación sin creative
 
-### Property 15: Periodic Cache Flush Trigger
+*For any* orden que no tiene al menos 1 OrderLine con al menos 1 Creative asignado, el intento de activación debe ser rechazado con un error descriptivo.
 
-*For any* Player instance, when the elapsed time since the last cache flush exceeds `cache_flush_interval_hours` (from Tenant config), the Player SHALL execute an LRU cleanup regardless of current disk space percentage.
+**Validates: Requirements 5.6**
 
-**Validates: Requirements 13.8, 12.1, 12.2**
+### Property 15: Cálculo de disponibilidad de inventario
 
-### Property 16: Permission Matrix Completeness
+*For any* OrderLine al momento de activación, la disponibilidad calculada debe comparar correctamente: target_spots de la línea contra (loops_per_day × slots asignables) considerando las demás líneas activas en las mismas pantallas. El resultado debe indicar isSufficient=true si y solo si target_spots ≤ capacidad disponible.
 
-*For any* (role, resource, operation) triple: super_admin has unrestricted access across all tenants; tenant_admin has full access within their own tenant and HTTP 403 for other tenants; trafficker has CRUD on orders/lines/creatives within their tenant only and HTTP 403 for activation, config, users, and cross-tenant access.
+**Validates: Requirements 6.1**
 
-**Validates: Requirements 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7**
+### Property 16: Descarga diferencial de assets por checksum
 
----
+*For any* par de Loop Templates (anterior y nuevo) para una misma pantalla, el player debe descargar únicamente los assets cuyo checksum_sha256 en el nuevo template no coincide con ningún asset almacenado localmente. Assets con checksum idéntico no deben descargarse.
+
+**Validates: Requirements 7.4**
+
+### Property 17: Protección de assets activos contra limpieza LRU
+
+*For any* asset incluido en el Loop Template activo de una pantalla, ese asset debe estar protegido de la limpieza LRU independientemente de su antigüedad o tiempo desde último acceso.
+
+**Validates: Requirements 7.7**
+
+### Property 18: Rotación round-robin secuencial en el player
+
+*For any* slot con N candidatos y estrategia "round_robin", el player debe reproducir el candidato en posición (iteration_count mod N) en cada iteración del loop, avanzando secuencialmente sin repetir hasta completar el ciclo.
+
+**Validates: Requirements 7.12**
+
+### Property 19: Matriz de permisos por rol y tenant
+
+*For any* combinación de (usuario, recurso, acción), el acceso debe ser otorgado si y solo si: (a) el usuario es super_admin, o (b) el usuario es tenant_admin y el recurso pertenece a su tenant, o (c) el usuario es trafficker, el recurso pertenece a su tenant, y la acción es CRUD sobre órdenes/líneas/creativos (excluyendo activación, configuración y gestión de usuarios).
+
+**Validates: Requirements 9.1, 10.5, 12.2**
+
+### Property 20: Completitud del registro de auditoría
+
+*For any* cambio sobre una entidad auditable (Order, OrderLine, Creative), el sistema debe crear un audit_log con: auditable_type y auditable_id correctos (polimórfico), user_id del usuario que realizó el cambio, created_at con timestamp válido, y para eventos field_modified un diff con old_value y new_value del campo modificado que refleje correctamente los valores antes y después del cambio.
+
+**Validates: Requirements 11.1, 11.3, 11.6**
+
 
 ## Error Handling
 
-### Backend
+### Backend (Laravel)
 
-| Escenario | Respuesta HTTP | Cuerpo |
-|-----------|---------------|--------|
-| `num_slots` fuera de rango 1-100 | 422 | `{ "errors": { "num_slots": ["El valor debe estar entre 1 y 100"] } }` |
-| `cache_flush_interval_hours` fuera de rango | 422 | `{ "errors": { "cache_flush_interval_hours": ["El valor debe estar entre 1 y 720"] } }` |
-| Trafficker intenta activar | 403 | `{ "message": "Permiso insuficiente para esta operación" }` |
-| Trafficker accede recurso de otro tenant | 403 | `{ "message": "Permiso insuficiente para esta operación" }` |
-| Token de invitación expirado | 422 | `{ "message": "El enlace de invitación ha expirado o ya fue utilizado" }` |
-| Email ya registrado en tenant | 422 | `{ "errors": { "email": ["Este usuario ya existe en la red"] } }` |
-| Envío email Resend falla | 503 | `{ "message": "No se pudo enviar la invitación. Intente nuevamente." }` |
-| Propagación falla (DB transaction rollback) | 500 | `{ "message": "La operación no se completó. Los valores no fueron modificados." }` |
-| Contraseña < 8 caracteres | 422 | `{ "errors": { "password": ["La contraseña debe tener mínimo 8 caracteres"] } }` |
-| Auto-eliminación de usuario | 422 | `{ "message": "No puede eliminarse a sí mismo" }` |
+| Escenario | HTTP Code | Respuesta |
+|-----------|-----------|-----------|
+| Validación de rango en config | 422 | `{ errors: { field: ["message"] } }` |
+| ssp_slots + playlist_slots ≥ num_slots | 422 | `{ errors: { num_slots: ["Debe quedar al menos 1 ad_slot"] } }` |
+| Patrocinio excede ad_slots | 422 | `{ errors: { slots_purchased: ["Insuficientes ad_slots: se necesitan N pero solo hay M disponibles"] } }` |
+| Activación sin creative | 422 | `{ errors: { status: ["La orden debe tener al menos 1 línea con creative asignado"] } }` |
+| Token de invitación expirado | 422 | `{ errors: { token: ["La invitación ha expirado"] } }` |
+| Token de reset expirado | 422 | `{ errors: { token: ["El enlace de restablecimiento ha expirado"] } }` |
+| Permiso denegado (rol) | 403 | `{ message: "No tiene permisos para esta acción" }` |
+| Recurso de otro tenant | 403 | `{ message: "Acceso denegado" }` |
+| Regeneración > 30s | — | Log warning + retry con queue |
 
-### Frontend
-
-- **Errores de red**: Mostrar toast con mensaje genérico + retry automático via TanStack Query
-- **Errores de validación (422)**: Mostrar inline en campos del formulario via React Hook Form `setError`
-- **Errores de permisos (403)**: Redirigir a `/orders` con toast de "Acceso denegado"
-- **Errores de servidor (500/503)**: Toast con mensaje del servidor + log en consola
-
-### Player
+### Player (TypeScript)
 
 | Escenario | Comportamiento |
 |-----------|---------------|
-| Descarga SSP timeout (30s) | Reproducir desde URL remota, registrar fallo, reintentar próximo ciclo |
-| Archivo cacheado no encontrado en disco | Re-descargar desde URL original, actualizar entry |
-| Error de red en descarga | Reproducir desde URL remota (streaming), no cachear |
-| Disk space < 20% | Ejecutar LRU cleanup (protegiendo playlist activa y fallback) |
-| Disk space < 10% después de cleanup | Reportar alerta crítica via StorageAlertReporter |
-| cache_flush_interval_hours no disponible en heartbeat | Usar default 24h |
+| Backend inaccesible (sync) | Continuar con template local, reintentar en próximo ciclo |
+| Descarga de asset falla | Mantener template anterior, reintentar en próximo sync |
+| Checksum de asset no coincide post-descarga | Descartar archivo, mantener template anterior |
+| SSP no-fill o timeout | Reproducir primer playlist_item como fallback |
+| Template vacío recibido | Mostrar pantalla en estado idle (logo/screensaver) |
+| JSON malformado del backend | Ignorar respuesta, mantener template actual, log error |
 
----
+### Frontend (React)
+
+| Escenario | Comportamiento |
+|-----------|---------------|
+| Error 422 (validación) | Mostrar mensajes de error junto a los campos del formulario |
+| Error 403 (permiso) | Mostrar toast de error "No tiene permisos" |
+| Error 5xx | Mostrar toast genérico "Error del servidor, intente nuevamente" |
+| Disponibilidad insuficiente | Modal informativo con opciones "Estoy de acuerdo" / "Modificar" |
+| Network error | Toast con opción de retry |
+
 
 ## Testing Strategy
 
-### Enfoque Dual
+### Enfoque Dual: Property-Based Testing + Unit Tests + Integration Tests
 
-El testing se estructura en dos niveles complementarios:
+Este feature combina lógica algorítmica compleja (asignación de slots, rotación, herencia) con integración de sistemas (API, player sync, DB). Usamos PBT para la lógica pura y tests de ejemplo/integración para el resto.
 
-1. **Property-Based Tests (PBT)** — Verifican propiedades universales con generación aleatoria de inputs
-2. **Unit/Integration Tests** — Verifican ejemplos específicos, edge cases, y integración con servicios externos
+### Property-Based Testing (PBT)
 
-### Property-Based Testing
+**Librería**: 
+- Backend (PHP): `spatie/pest-plugin-faker` + custom generators con Pest
+- Player (TypeScript): `fast-check` con Vitest
 
-**Librería**: [Pest PHP](https://pestphp.com/) con [PHPUnit Data Providers](https://docs.phpunit.de/en/10.5/writing-tests-for-phpunit.html#data-providers) para el backend + generadores custom. Para el Player (TypeScript): [fast-check](https://github.com/dubzzz/fast-check).
+**Configuración**: Mínimo 100 iteraciones por propiedad.
 
-**Configuración**:
-- Mínimo 100 iteraciones por property test
-- Cada test referencia su property del design document
-- Tag format: `Feature: 12-simil-ad-manager, Property {N}: {description}`
+**Tag format**: `Feature: 12-simil-ad-manager, Property {N}: {título}`
 
-#### Properties a Implementar como PBT
+#### Propiedades a implementar como PBT:
 
-| # | Property | Target | Generadores |
-|---|----------|--------|-------------|
-| 1 | num_slots Validation Range | Backend (FormRequest) | Integers [-1000, 1000], floats, strings |
-| 2 | num_slots Inheritance Resolution | Backend (SlotConfigService) | Hierarchies con null/non-null combinations |
-| 3 | Slot Capacity Calculation | Backend (SlotConfigService) | Random total_daily_spots (1-10000), num_slots (1-100) |
-| 4 | Propagation Completeness | Backend (SlotPropagationService) | Random hierarchies (1-50 groups, 1-20 screens/group) |
-| 5 | Target Spots Immutability | Backend (PriorityEngine) | Random lines with activation + num_slots changes |
-| 6 | Unused Slot Capacity | Backend (PriorityEngine) | Random slot configurations with partial/no consumption |
-| 7 | Waterfall Tier Ordering | Backend (PriorityEngine) | Random mixed-tier line sets |
-| 8 | ASAP:Uniform Ratio | Backend (PriorityEngine) | Random estandar lines with varying creative counts |
-| 9 | Order Dates Computed | Backend (Order model) | Random sets of OrderLines with various date ranges |
-| 10 | Availability Conflict Detection | Backend (AvailabilityAnalyzer) | Random screen/line configurations with overlapping dates |
-| 11 | Trafficker Permission Enforcement | Backend (Middleware) | All (role, resource, operation) triples |
-| 12 | Audit Log Captures Modifications | Backend (AuditService) | Random field modifications on Order/OrderLine |
-| 13 | SSP Cache URL Identity | Player (SspCacheManager) | Random URL strings with/without query params |
-| 14 | SSP Cache Latest print_id | Player (SspCacheManager) | Sequences of SSP responses with same/different URLs |
-| 15 | Periodic Cache Flush | Player (SspCacheManager) | Random timestamps and interval configurations |
-| 16 | Permission Matrix | Backend (Middleware) | Full matrix of role × resource × operation |
+| Property | Servicio bajo test | Generadores necesarios |
+|----------|-------------------|----------------------|
+| 1: Validación de rango | LoopConfigValidator | Enteros random [-1000, 1000] |
+| 2: ad_slots invariante | LoopConfigValidator | Triples (num, ssp, playlist) |
+| 3: Herencia num_slots | resolveNumSlots() | Hierarchies con nullable fields |
+| 5: Estructura del template | LoopTemplateGenerator | Screen configs variados |
+| 6: Waterfall allocation | SlotAllocator | Conjuntos de OrderLines multi-tier |
+| 7: Round-robin over-sub | SlotAllocator | Líneas > slots scenarios |
+| 8: Ratio ASAP:Uniform | RotationScheduler | Líneas ASAP+Uniform con totals variables |
+| 9: Red_Interna weight | RotationScheduler | Líneas con share_weights random |
+| 10: Hash integridad | computeVersion() | Templates con contenido variable |
+| 11: Pace por tier | OrderLine store logic | (tier, pace) pairs |
+| 12: target_spots calc | Patrocinio calculator | (N, loop_config) pairs |
+| 13: Fechas derivadas | Order accessor | Orders con múltiples lines con fechas |
+| 18: Round-robin player | LoopEngine.selectCandidate | Slots con N candidatos, M iteraciones |
+| 19: Permisos | Authorization middleware | (role, tenant, resource, action) tuples |
 
-### Unit Tests (Examples + Edge Cases)
+### Unit Tests (Ejemplo-based)
 
-- Propagación con 0 entidades hijas (mensaje informativo)
-- Token de invitación expirado a los 48h + 1 segundo
-- Email duplicado en mismo tenant
-- Self-deletion attempt
-- OrderLine sin target (null target_spots) en cálculo de disponibilidad
-- Order sin OrderLines → fechas null
-- Toggle "por Slot" en tier no-patrocinio (debe ocultarse)
-- cache_flush_interval_hours = null → default 24
-- Descarga SSP con timeout exacto a 30s
+- Activación rechazada sin creative (Req 5.6)
+- Modal de disponibilidad insuficiente (Req 6.2)
+- HTTP 304 no reinicia posición del player (Req 7.2)
+- Fallback a playlist cuando SSP falla (Req 7.9)
+- Token expirado rechazado (Req 10.2)
+- Badges de color por tipo de evento (Req 11.5)
+- Frontend oculta secciones para trafficker (Req 9.5)
 
 ### Integration Tests
 
-- Flujo completo de invitación: crear → email → aceptar → login
-- Propagación atómica: fallo a mitad de operación → rollback total
-- Heartbeat con `cache_flush_interval_hours` en respuesta
-- Caché SSP end-to-end: prefetch → cache → replay → PoP con nuevo print_id
-- Audit log con usuario eliminado → muestra "Usuario eliminado"
+- Regeneración de templates completa en < 30s (Req 2.11)
+- Flujo completo de invitación → registro → login
+- Sync player con backend real: poll → detect change → download diff
+- Flujo de activación con modal de disponibilidad end-to-end
+- Propagación de num_slots con "Aplicar a todos" a través de la jerarquía
 
-### Frontend Tests
+### Cobertura por Capa
 
-- Componentes de formulario con Vitest + Testing Library
-- Modal de disponibilidad con datos mock
-- Navegación restringida por rol trafficker
-- Formulario Order sin campos de fecha
+| Capa | Tipo de test | Herramienta |
+|------|-------------|-------------|
+| Backend Services (PHP) | PBT + Unit | Pest + custom generators |
+| Backend API (PHP) | Integration | Pest + RefreshDatabase |
+| Frontend Components (TSX) | Unit | Vitest + Testing Library |
+| Frontend Hooks (TS) | Unit | Vitest + MSW |
+| Player Engine (TS) | PBT + Unit | Vitest + fast-check |
+| Player Sync (TS) | Integration | Vitest + mock server |
+

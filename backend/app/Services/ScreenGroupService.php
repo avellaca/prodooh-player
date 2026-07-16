@@ -12,7 +12,7 @@ class ScreenGroupService
      */
     public function list()
     {
-        return ScreenGroup::with('screens')->orderBy('created_at', 'desc')->get();
+        return ScreenGroup::withCount('screens')->with('screens')->orderBy('created_at', 'desc')->get();
     }
 
     /**

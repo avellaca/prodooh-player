@@ -3,6 +3,7 @@ import { Building2 } from 'lucide-react';
 import Header from './Header';
 import { useAuth } from '@/hooks/use-auth';
 import { useTenantContext } from '@/contexts/TenantContext';
+import { VoiceAssistant } from '@/features/voice-assistant/VoiceAssistant';
 
 const EXEMPT_PATHS = ['/networks'];
 
@@ -35,6 +36,7 @@ export default function AppLayout() {
       <main className="flex-1 p-6">
         {showGate ? <TenantSelectionPrompt /> : <Outlet />}
       </main>
+      <VoiceAssistant />
     </div>
   );
 }

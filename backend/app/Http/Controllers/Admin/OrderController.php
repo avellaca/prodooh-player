@@ -18,7 +18,7 @@ class OrderController extends Controller
      */
     public function index(): JsonResponse
     {
-        $orders = Order::withCount('orderLines')->get();
+        $orders = Order::with('advertiser')->withCount('orderLines')->get();
 
         return response()->json(['data' => $orders]);
     }
@@ -27,6 +27,10 @@ class OrderController extends Controller
      * Create a new order.
      *
      * POST /api/admin/orders
+     *
+     * Only accepts: name, advertiser_name.
+     * Dates (starts_at, ends_at) are computed dynamically from order_lines.
+     * Status is auto-assigned as "draft".
      */
     public function store(Request $request): JsonResponse
     {
@@ -34,10 +38,8 @@ class OrderController extends Controller
 
         $rules = [
             'name' => ['required', 'string', 'max:255'],
+            'advertiser_id' => ['nullable', 'uuid', 'exists:advertisers,id'],
             'advertiser_name' => ['nullable', 'string', 'max:255'],
-            'starts_at' => ['required', 'date'],
-            'ends_at' => ['required', 'date', 'after_or_equal:starts_at'],
-            'status' => ['required', Rule::in(['draft', 'active', 'paused', 'finished'])],
         ];
 
         // Super-admin must provide tenant_id (via interceptor query param or body)
@@ -50,11 +52,13 @@ class OrderController extends Controller
 
         $validated = $request->validate($rules);
 
-        // Tenant-admin: assign their own tenant_id implicitly
-        if ($user->isTenantAdmin()) {
+        // Tenant-admin or trafficker: assign their own tenant_id implicitly
+        if ($user->isTenantAdmin() || $user->isTrafficker()) {
             $validated['tenant_id'] = $user->tenant_id;
         }
 
+        // Status defaults to 'draft' via the Order model's booted() method.
+        // starts_at and ends_at are computed accessors (not stored columns).
         $order = Order::create($validated);
 
         return response()->json(['data' => $order], 201);
@@ -64,6 +68,8 @@ class OrderController extends Controller
      * Show a single order with relationships.
      *
      * GET /api/admin/orders/{id}
+     *
+     * starts_at and ends_at are computed dynamically as MIN/MAX from order_lines.
      */
     public function show(string $id): JsonResponse
     {
@@ -71,7 +77,9 @@ class OrderController extends Controller
             return response()->json(['message' => 'Order not found.'], 404);
         }
 
-        $order = Order::withCount('orderLines')->find($id);
+        $order = Order::with(['orderLines', 'advertiser'])
+            ->withCount('orderLines')
+            ->find($id);
 
         if (!$order) {
             return response()->json(['message' => 'Order not found.'], 404);
@@ -100,10 +108,24 @@ class OrderController extends Controller
         $validated = $request->validate([
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'advertiser_name' => ['nullable', 'string', 'max:255'],
-            'starts_at' => ['sometimes', 'required', 'date'],
-            'ends_at' => ['sometimes', 'required', 'date', 'after_or_equal:starts_at'],
             'status' => ['sometimes', 'required', Rule::in(['draft', 'active', 'paused', 'finished'])],
         ]);
+
+        // Reject activation if order has no OrderLine with at least 1 Creative assigned
+        if (isset($validated['status']) && $validated['status'] === 'active') {
+            $hasLineWithCreative = $order->orderLines()
+                ->whereHas('creatives')
+                ->exists();
+
+            if (!$hasLineWithCreative) {
+                return response()->json([
+                    'message' => 'No se puede activar el pedido.',
+                    'errors' => [
+                        'status' => ['El pedido no tiene al menos 1 línea de pedido con al menos 1 creativo asignado. Agrega creativos antes de activar.'],
+                    ],
+                ], 422);
+            }
+        }
 
         $order->update($validated);
 
@@ -130,5 +152,41 @@ class OrderController extends Controller
         $order->delete();
 
         return response()->json(['message' => 'Order deleted successfully.']);
+    }
+
+    /**
+     * Activate an order.
+     *
+     * PATCH /api/admin/orders/{id}/activate
+     */
+    public function activate(Request $request, string $id): JsonResponse
+    {
+        if (!Str::isUuid($id)) {
+            return response()->json(['message' => 'Order not found.'], 404);
+        }
+
+        $order = Order::find($id);
+
+        if (!$order) {
+            return response()->json(['message' => 'Order not found.'], 404);
+        }
+
+        // Reject activation if order has no OrderLine with at least 1 Creative assigned
+        $hasLineWithCreative = $order->orderLines()
+            ->whereHas('creatives')
+            ->exists();
+
+        if (!$hasLineWithCreative) {
+            return response()->json([
+                'message' => 'No se puede activar el pedido.',
+                'errors' => [
+                    'status' => ['El pedido no tiene al menos 1 línea de pedido con al menos 1 creativo asignado. Agrega creativos antes de activar.'],
+                ],
+            ], 422);
+        }
+
+        $order->update(['status' => 'active']);
+
+        return response()->json(['data' => $order->fresh()]);
     }
 }

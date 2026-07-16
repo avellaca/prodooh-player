@@ -79,6 +79,7 @@ class ScreenGroupController extends Controller
         $validated = $request->validate([
             'name' => ['sometimes', 'string', 'max:255'],
             'duration_seconds' => ['nullable', 'integer', 'min:1'],
+            'num_slots' => ['nullable', 'integer', 'min:1', 'max:100'],
             'schedule' => ['nullable', 'array'],
         ]);
 

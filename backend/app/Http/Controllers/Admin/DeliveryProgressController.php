@@ -18,7 +18,7 @@ class DeliveryProgressController extends Controller
      */
     public function show(string $orderId): JsonResponse
     {
-        $order = Order::with('orderLines')->find($orderId);
+        $order = Order::withoutGlobalScopes()->with('orderLines')->find($orderId);
 
         if (!$order) {
             return response()->json(['message' => 'Order not found.'], 404);

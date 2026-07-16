@@ -8,14 +8,16 @@ export const scheduleSlotSchema = z.object({
 
 export const groupSchema = z.object({
   name: z.string().min(1, 'El nombre es obligatorio'),
-  duration_seconds: z.coerce.number({ invalid_type_error: 'Debe ser un número' }).min(1, 'La duración debe ser al menos 1 segundo').optional(),
+  duration_seconds: z.coerce.number({ invalid_type_error: 'Debe ser un número' }).min(1, 'La duración debe ser al menos 1 segundo').nullable().optional(),
+  num_slots: z.coerce.number({ invalid_type_error: 'Debe ser un número' }).int().min(1).max(100).nullable().optional(),
   schedule: z.array(scheduleSlotSchema).nullable().optional(),
   tenant_id: z.string().uuid().optional(),
 });
 
 export const updateGroupSchema = z.object({
   name: z.string().min(1, 'El nombre es obligatorio').optional(),
-  duration_seconds: z.coerce.number({ invalid_type_error: 'Debe ser un número' }).min(1, 'La duración debe ser al menos 1 segundo').optional(),
+  duration_seconds: z.coerce.number({ invalid_type_error: 'Debe ser un número' }).min(1, 'La duración debe ser al menos 1 segundo').nullable().optional(),
+  num_slots: z.coerce.number({ invalid_type_error: 'Debe ser un número' }).int().min(1).max(100).nullable().optional(),
   schedule: z.array(scheduleSlotSchema).nullable().optional(),
 });
 

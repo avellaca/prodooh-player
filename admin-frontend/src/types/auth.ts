@@ -1,7 +1,7 @@
 export interface AuthUser {
   id: string;
   email: string;
-  role: 'super_admin' | 'tenant_admin';
+  role: 'super_admin' | 'tenant_admin' | 'trafficker';
   tenant_id: string | null;
   created_at: string;
 }

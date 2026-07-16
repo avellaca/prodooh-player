@@ -34,6 +34,11 @@ class Tenant extends Model
         'default_schedule',
         'transition_type',
         'transition_duration_ms',
+        'num_slots',
+        'ssp_slots',
+        'playlist_slots',
+        'sync_interval_seconds',
+        'cache_flush_interval_hours',
     ];
 
     /**

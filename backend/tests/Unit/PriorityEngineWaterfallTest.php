@@ -71,10 +71,7 @@ class PriorityEngineWaterfallTest extends TestCase
     {
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
-            'name' => 'Test Order',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
-            'status' => 'active',
+            'name' => 'Test Order',            'status' => 'active',
         ]);
 
         $defaults = [
@@ -405,10 +402,7 @@ class PriorityEngineWaterfallTest extends TestCase
 
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
-            'name' => 'Active Order',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
-            'status' => 'active',
+            'name' => 'Active Order',            'status' => 'active',
         ]);
 
         $line = OrderLine::create([
@@ -458,10 +452,7 @@ class PriorityEngineWaterfallTest extends TestCase
 
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
-            'name' => 'Active Order',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
-            'status' => 'active',
+            'name' => 'Active Order',            'status' => 'active',
         ]);
 
         $line = OrderLine::create([

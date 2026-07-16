@@ -17,7 +17,7 @@ class SuperAdminSeeder extends Seeder
             ['email' => 'admin@prodooh.com'],
             [
                 'tenant_id' => null,
-                'password_hash' => Hash::make('password'),
+                'password_hash' => Hash::make('Mexico2026!'),
                 'role' => 'super_admin',
             ]
         );

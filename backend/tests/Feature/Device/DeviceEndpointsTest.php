@@ -36,43 +36,67 @@ class DeviceEndpointsTest extends TestCase
     }
 
     // ──────────────────────────────────────────────
-    // GET /api/device/manifest
+    // GET /api/device/manifest (Loop Template format)
     // ──────────────────────────────────────────────
 
-    public function test_manifest_returns_200_with_valid_structure(): void
+    public function test_manifest_returns_200_with_loop_template_structure(): void
     {
-        $items = [
-            [
-                'position' => 0,
-                'type' => 'order_line_creative',
-                'asset_url' => 'https://cdn.example.com/content/xyz.mp4',
-                'checksum_sha256' => 'a1b2c3d4e5f6',
-                'duration_seconds' => 10,
-                'order_line_id' => (string) Str::uuid(),
-                'creative_id' => (string) Str::uuid(),
+        $loopTemplate = [
+            'version' => 'sha256:a1b2c3d4e5f6',
+            'generated_at' => '2025-01-15T10:30:00+00:00',
+            'loop_config' => [
+                'num_slots' => 10,
+                'slot_duration_seconds' => 10,
+                'loop_duration_seconds' => 100,
+                'loops_per_day' => 576,
             ],
-            [
-                'position' => 1,
-                'type' => 'prodooh_ssp_call',
-                'duration_seconds' => 10,
+            'slots' => [
+                [
+                    'position' => 0,
+                    'type' => 'ad',
+                    'strategy' => 'fixed',
+                    'candidates' => [
+                        [
+                            'order_line_id' => (string) Str::uuid(),
+                            'creative_id' => (string) Str::uuid(),
+                            'asset_url' => '/api/device/content/uuid/file',
+                            'checksum_sha256' => 'abc123def456',
+                        ],
+                    ],
+                ],
+                [
+                    'position' => 7,
+                    'type' => 'ssp',
+                    'strategy' => 'fixed',
+                    'provider' => 'prodooh',
+                    'candidates' => [],
+                ],
+                [
+                    'position' => 9,
+                    'type' => 'playlist',
+                    'strategy' => 'round_robin',
+                    'candidates' => [
+                        [
+                            'playlist_item_id' => (string) Str::uuid(),
+                            'asset_url' => '/api/device/content/uuid-pl/file',
+                            'checksum_sha256' => 'jkl012mno345',
+                        ],
+                    ],
+                ],
             ],
-            [
-                'position' => 2,
-                'type' => 'playlist_item',
-                'asset_url' => 'https://cdn.example.com/content/abc.jpg',
-                'checksum_sha256' => 'd4e5f6a7b8c9',
-                'duration_seconds' => 10,
-                'playlist_item_id' => (string) Str::uuid(),
-            ],
+            'sync_interval_seconds' => 240,
+            'cache_flush_interval_hours' => 24,
         ];
+
+        $version = 'a1b2c3d4e5f6testversion';
 
         ScreenManifest::create([
             'screen_id' => $this->screen->id,
-            'version' => 'sha256-test-version-abc123',
+            'version' => $version,
             'generated_at' => now(),
-            'items' => $items,
-            'total_spots' => 100,
-            'remaining_spots' => 80,
+            'items' => $loopTemplate,
+            'total_spots' => 5760,
+            'remaining_spots' => 4032,
         ]);
 
         $response = $this->getJson('/api/device/manifest', [
@@ -83,30 +107,61 @@ class DeviceEndpointsTest extends TestCase
         $response->assertJsonStructure([
             'version',
             'generated_at',
-            'items' => [
-                '*' => ['position', 'type', 'duration_seconds'],
+            'loop_config' => [
+                'num_slots',
+                'slot_duration_seconds',
+                'loop_duration_seconds',
+                'loops_per_day',
             ],
+            'slots' => [
+                '*' => ['position', 'type', 'strategy', 'candidates'],
+            ],
+            'sync_interval_seconds',
+            'cache_flush_interval_hours',
         ]);
 
         $data = $response->json();
-        $this->assertEquals('sha256-test-version-abc123', $data['version']);
-        $this->assertNotNull($data['generated_at']);
-        $this->assertCount(3, $data['items']);
-        $this->assertEquals('order_line_creative', $data['items'][0]['type']);
-        $this->assertEquals('prodooh_ssp_call', $data['items'][1]['type']);
-        $this->assertEquals('playlist_item', $data['items'][2]['type']);
-        $response->assertHeader('ETag', 'sha256-test-version-abc123');
+        $this->assertEquals('sha256:a1b2c3d4e5f6', $data['version']);
+        $this->assertEquals(10, $data['loop_config']['num_slots']);
+        $this->assertEquals(240, $data['sync_interval_seconds']);
+        $this->assertEquals(24, $data['cache_flush_interval_hours']);
+        $this->assertCount(3, $data['slots']);
+        $this->assertEquals('ad', $data['slots'][0]['type']);
+        $this->assertEquals('ssp', $data['slots'][1]['type']);
+        $this->assertEquals('playlist', $data['slots'][2]['type']);
+        $response->assertHeader('ETag', $version);
     }
 
     public function test_manifest_returns_304_when_if_none_match_matches_version(): void
     {
-        $version = 'sha256-cached-version-xyz789';
+        $version = 'sha256cachedversionxyz789';
+
+        $loopTemplate = [
+            'version' => "sha256:{$version}",
+            'generated_at' => '2025-01-15T10:30:00+00:00',
+            'loop_config' => [
+                'num_slots' => 10,
+                'slot_duration_seconds' => 10,
+                'loop_duration_seconds' => 100,
+                'loops_per_day' => 576,
+            ],
+            'slots' => [
+                [
+                    'position' => 0,
+                    'type' => 'ad',
+                    'strategy' => 'fixed',
+                    'candidates' => [],
+                ],
+            ],
+            'sync_interval_seconds' => 240,
+            'cache_flush_interval_hours' => 24,
+        ];
 
         ScreenManifest::create([
             'screen_id' => $this->screen->id,
             'version' => $version,
             'generated_at' => now(),
-            'items' => [['position' => 0, 'type' => 'playlist_item', 'duration_seconds' => 10]],
+            'items' => $loopTemplate,
             'total_spots' => 50,
             'remaining_spots' => 50,
         ]);
@@ -119,7 +174,7 @@ class DeviceEndpointsTest extends TestCase
         $response->assertStatus(304);
     }
 
-    public function test_manifest_returns_empty_response_when_no_manifest_exists(): void
+    public function test_manifest_returns_empty_loop_template_when_no_manifest_exists(): void
     {
         $response = $this->getJson('/api/device/manifest', [
             'Authorization' => 'Bearer ' . $this->token,
@@ -129,7 +184,29 @@ class DeviceEndpointsTest extends TestCase
         $response->assertJson([
             'version' => null,
             'generated_at' => null,
-            'items' => [],
+            'loop_config' => null,
+            'slots' => [],
+            'sync_interval_seconds' => 240,
+            'cache_flush_interval_hours' => 24,
+        ]);
+    }
+
+    public function test_manifest_includes_tenant_sync_config_in_empty_response(): void
+    {
+        // Update tenant with custom sync settings
+        $this->tenant->update([
+            'sync_interval_seconds' => 120,
+            'cache_flush_interval_hours' => 48,
+        ]);
+
+        $response = $this->getJson('/api/device/manifest', [
+            'Authorization' => 'Bearer ' . $this->token,
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'sync_interval_seconds' => 120,
+            'cache_flush_interval_hours' => 48,
         ]);
     }
 

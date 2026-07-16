@@ -36,6 +36,9 @@ class ScreenGroup extends Model
         'name',
         'duration_seconds',
         'schedule',
+        'num_slots',
+        'ssp_slots',
+        'playlist_slots',
     ];
 
     /**

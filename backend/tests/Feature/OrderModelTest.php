@@ -60,8 +60,6 @@ class OrderModelTest extends TestCase
             'tenant_id' => $this->tenant->id,
             'name' => 'Campaign Q3',
             'advertiser_name' => 'Acme Corp',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
             'status' => 'active',
         ]);
 
@@ -133,8 +131,6 @@ class OrderModelTest extends TestCase
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
             'name' => 'Cascade Test Order',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
             'status' => 'draft',
         ]);
 
@@ -178,8 +174,6 @@ class OrderModelTest extends TestCase
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
             'name' => 'Set Null Test',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
             'status' => 'draft',
         ]);
 
@@ -227,8 +221,6 @@ class OrderModelTest extends TestCase
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
             'name' => 'Restrict Test',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
             'status' => 'draft',
         ]);
 
@@ -253,105 +245,63 @@ class OrderModelTest extends TestCase
     }
 
     // =========================================================================
-    // 15.5 — Date containment: OrderLine dates must be within Order range
+    // 15.5 — Computed dates: Order starts_at/ends_at derived from order lines
     // =========================================================================
 
-    public function test_order_line_dates_must_be_within_order_range(): void
+    public function test_order_dates_computed_from_order_lines(): void
     {
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
-            'name' => 'Date Containment Order',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
+            'name' => 'Computed Dates Order',
             'status' => 'draft',
         ]);
 
-        // starts_at before order range
-        $this->expectException(ValidationException::class);
+        // No lines → null dates
+        $this->assertNull($order->starts_at);
+        $this->assertNull($order->ends_at);
+
+        // Add first line
         OrderLine::create([
             'order_id' => $order->id,
-            'name' => 'Early Start Line',
-            'priority_tier' => 'estandar',
-            'starts_at' => '2026-07-25',
-            'ends_at' => '2026-08-15',
-            'status' => 'draft',
-        ]);
-    }
-
-    public function test_order_line_ends_at_after_order_range_fails(): void
-    {
-        $order = Order::create([
-            'tenant_id' => $this->tenant->id,
-            'name' => 'Date Containment Order 2',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
-            'status' => 'draft',
-        ]);
-
-        // ends_at after order range
-        $this->expectException(ValidationException::class);
-        OrderLine::create([
-            'order_id' => $order->id,
-            'name' => 'Late End Line',
-            'priority_tier' => 'estandar',
-            'starts_at' => '2026-08-10',
-            'ends_at' => '2026-09-05',
-            'status' => 'draft',
-        ]);
-    }
-
-    // =========================================================================
-    // 15.7 — Order date shrink prevention: cannot shrink if children exist outside
-    // =========================================================================
-
-    public function test_order_date_shrink_prevented_when_children_exist_outside(): void
-    {
-        $order = Order::create([
-            'tenant_id' => $this->tenant->id,
-            'name' => 'Shrink Test Order',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
-            'status' => 'draft',
-        ]);
-
-        OrderLine::create([
-            'order_id' => $order->id,
-            'name' => 'Full Range Line',
-            'priority_tier' => 'estandar',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
-            'status' => 'draft',
-        ]);
-
-        // Try to shrink the order's end date
-        $this->expectException(ValidationException::class);
-        $order->update(['ends_at' => '2026-08-20']);
-    }
-
-    public function test_order_date_shrink_allowed_when_children_fit(): void
-    {
-        $order = Order::create([
-            'tenant_id' => $this->tenant->id,
-            'name' => 'Shrink OK Order',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
-            'status' => 'draft',
-        ]);
-
-        OrderLine::create([
-            'order_id' => $order->id,
-            'name' => 'Short Line',
+            'name' => 'Line 1',
             'priority_tier' => 'estandar',
             'starts_at' => '2026-08-05',
-            'ends_at' => '2026-08-15',
+            'ends_at' => '2026-08-20',
             'status' => 'draft',
         ]);
 
-        // Shrink is OK because the child fits within the new range
-        $order->update(['ends_at' => '2026-08-20']);
         $order->refresh();
+        $this->assertEquals('2026-08-05', $order->starts_at->toDateString());
         $this->assertEquals('2026-08-20', $order->ends_at->toDateString());
+
+        // Add second line with wider range
+        OrderLine::create([
+            'order_id' => $order->id,
+            'name' => 'Line 2',
+            'priority_tier' => 'estandar',
+            'starts_at' => '2026-08-01',
+            'ends_at' => '2026-08-31',
+            'status' => 'draft',
+        ]);
+
+        $order->refresh();
+        $this->assertEquals('2026-08-01', $order->starts_at->toDateString());
+        $this->assertEquals('2026-08-31', $order->ends_at->toDateString());
     }
+
+    public function test_order_default_status_is_draft(): void
+    {
+        $order = Order::create([
+            'tenant_id' => $this->tenant->id,
+            'name' => 'Default Status Order',
+        ]);
+
+        $this->assertEquals('draft', $order->status);
+    }
+
+    // =========================================================================
+    // 15.7 — (Removed) Order date shrink tests are obsolete since dates are computed
+    // =========================================================================
 
     // =========================================================================
     // 15.8 — XOR validation: OrderLineTarget rejects invalid combinations
@@ -362,8 +312,6 @@ class OrderModelTest extends TestCase
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
             'name' => 'XOR Test Order',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
             'status' => 'draft',
         ]);
 
@@ -389,8 +337,6 @@ class OrderModelTest extends TestCase
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
             'name' => 'XOR Test Order 2',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
             'status' => 'draft',
         ]);
 
@@ -416,8 +362,6 @@ class OrderModelTest extends TestCase
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
             'name' => 'XOR Valid Screen',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
             'status' => 'draft',
         ]);
 
@@ -446,8 +390,6 @@ class OrderModelTest extends TestCase
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
             'name' => 'XOR Valid Group',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
             'status' => 'draft',
         ]);
 
@@ -473,31 +415,14 @@ class OrderModelTest extends TestCase
 
     // =========================================================================
     // 15.9 — CHECK constraints at DB level: insert with ends_at < starts_at fails
+    // (Order-level constraint removed since dates are now computed from order_lines)
     // =========================================================================
-
-    public function test_check_constraint_orders_ends_before_starts_fails(): void
-    {
-        $this->expectException(\Illuminate\Database\QueryException::class);
-
-        DB::table('orders')->insert([
-            'id' => \Illuminate\Support\Str::uuid()->toString(),
-            'tenant_id' => $this->tenant->id,
-            'name' => 'Invalid Order',
-            'starts_at' => '2026-08-31',
-            'ends_at' => '2026-08-01', // ends before starts
-            'status' => 'draft',
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-    }
 
     public function test_check_constraint_order_lines_ends_before_starts_fails(): void
     {
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
             'name' => 'Check Constraint Parent',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
             'status' => 'draft',
         ]);
 

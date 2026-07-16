@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { type ColumnDef } from '@tanstack/react-table';
 import { differenceInMinutes } from 'date-fns';
 import { Plus, Search } from 'lucide-react';
@@ -27,6 +28,7 @@ import { ScreenForm } from '../components/ScreenForm';
 import { useScreens } from '../hooks';
 import { useAuth } from '@/hooks/use-auth';
 import { useTenantContext } from '@/contexts/TenantContext';
+import { api } from '@/lib/axios';
 import type { Screen } from '@/types/models';
 
 function getConnectionStatus(screen: Screen): 'online' | 'offline' {
@@ -49,6 +51,17 @@ export default function ScreensPage() {
   const needsTenant = isSuperAdmin && !selectedTenantId;
 
   const { data: screens, isLoading, isError, refetch } = useScreens();
+
+  // Get tenant loop config for slot/spots calculations
+  const tenantId = isSuperAdmin ? selectedTenantId : user?.tenant_id;
+  const { data: loopConfig } = useQuery({
+    queryKey: ['loop-config', tenantId],
+    queryFn: () => api.get(`/admin/tenants/${tenantId}/loop-config`).then((r) => r.data),
+    enabled: !!tenantId,
+  });
+  const sspSlots = loopConfig?.ssp_slots ?? 2;
+  const playlistSlots = loopConfig?.playlist_slots ?? 1;
+  const defaultNumSlots = loopConfig?.num_slots ?? 10;
 
   // Filter screens based on search and status
   const filteredScreens = useMemo(() => {
@@ -118,7 +131,7 @@ export default function ScreensPage() {
             <span
               className={`h-2.5 w-2.5 rounded-full ${conn === 'online' ? 'bg-green-500' : 'bg-red-500'}`}
             />
-            <span className="text-sm">{conn === 'online' ? 'Online' : 'Offline'}</span>
+            <span className="text-sm">{conn === 'online' ? 'En línea' : 'Fuera de línea'}</span>
           </div>
         );
       },
@@ -140,6 +153,45 @@ export default function ScreensPage() {
       header: 'Resolución',
       cell: ({ row }) =>
         `${row.original.resolution_width}×${row.original.resolution_height}`,
+    },
+    {
+      id: 'slots',
+      header: 'Ad Slots',
+      cell: ({ row }) => {
+        const screen = row.original;
+        const numSlots = screen.num_slots ?? screen.screen_group?.num_slots ?? defaultNumSlots;
+        const adSlots = numSlots - sspSlots - playlistSlots;
+        return (
+          <span className="text-sm font-medium">{adSlots > 0 ? adSlots : '—'}</span>
+        );
+      },
+    },
+    {
+      id: 'spots_day',
+      header: 'Spots/día',
+      cell: ({ row }) => {
+        const screen = row.original;
+        const numSlots = screen.num_slots ?? screen.screen_group?.num_slots ?? defaultNumSlots;
+        const slotDuration = screen.screen_group?.duration_seconds ?? 10;
+        const adSlots = numSlots - sspSlots - playlistSlots;
+
+        // Resolve operating window from screen schedule → group schedule → tenant default
+        const schedule = screen.schedule ?? screen.screen_group?.schedule ?? null;
+        let operatingSeconds = 86400; // 24h default if no schedule
+        if (schedule && schedule.length > 0) {
+          operatingSeconds = schedule.reduce((total, rule) => {
+            const [sh, sm] = (rule.start ?? '00:00').split(':').map(Number);
+            const [eh, em] = (rule.end ?? '24:00').split(':').map(Number);
+            return total + ((eh * 60 + em) - (sh * 60 + sm)) * 60;
+          }, 0);
+        }
+
+        const loopsPerDay = Math.floor(operatingSeconds / (numSlots * slotDuration));
+        const spotsPerDay = loopsPerDay * (adSlots > 0 ? adSlots : 0);
+        return (
+          <span className="text-sm text-muted-foreground">{spotsPerDay.toLocaleString()}</span>
+        );
+      },
     },
   ];
 

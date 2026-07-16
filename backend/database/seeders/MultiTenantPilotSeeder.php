@@ -39,9 +39,9 @@ class MultiTenantPilotSeeder extends Seeder
             ]
         );
 
-        // ─── Tenant B: Network Demo ───
+        // ─── Tenant B: Media Owner Demo ───
         $tenantB = Tenant::updateOrCreate(
-            ['name' => 'Network Demo'],
+            ['name' => 'Media Owner Demo'],
             [
                 'api_credential' => Str::uuid()->toString(),
                 'default_duration_seconds' => 15,
@@ -50,26 +50,26 @@ class MultiTenantPilotSeeder extends Seeder
                 'transition_type' => 'slide',
                 'transition_duration_ms' => 300,
                 'default_config' => [
-                    'description' => 'Network demo para pruebas',
+                    'description' => 'Media Owner Demo para pruebas',
                 ],
             ]
         );
 
         // ─── Admin Users ───
         User::updateOrCreate(
-            ['email' => 'admin-a@prodooh.com'],
+            ['email' => 'admin.tenant@prodooh.com'],
             [
                 'tenant_id' => $tenantA->id,
-                'password_hash' => 'password',
+                'password_hash' => Hash::make('Mexico2026!'),
                 'role' => 'tenant_admin',
             ]
         );
 
         User::updateOrCreate(
-            ['email' => 'admin-b@networkdemo.com'],
+            ['email' => 'demo@media.com'],
             [
                 'tenant_id' => $tenantB->id,
-                'password_hash' => 'password',
+                'password_hash' => Hash::make('Test#2026'),
                 'role' => 'tenant_admin',
             ]
         );
@@ -90,7 +90,12 @@ class MultiTenantPilotSeeder extends Seeder
             ['duration_seconds' => 10]
         );
 
-        // ─── Screen Group for Network Demo ───
+        $groupOutdoor = ScreenGroup::updateOrCreate(
+            ['tenant_id' => $tenantA->id, 'name' => 'AIFA Outdoor'],
+            ['duration_seconds' => 10]
+        );
+
+        // ─── Screen Group for Media Owner Demo ───
         $groupDemo = ScreenGroup::updateOrCreate(
             ['tenant_id' => $tenantB->id, 'name' => 'Lobby Principal'],
             ['duration_seconds' => 15]
@@ -298,7 +303,7 @@ class MultiTenantPilotSeeder extends Seeder
                 ['venue_id' => $venueId],
                 [
                     'tenant_id' => $tenantA->id,
-                    'group_id' => $groupTotems->id,
+                    'group_id' => $groupOutdoor->id,
                     'name' => $screen['name'],
                     'device_token_hash' => Hash::make(Str::uuid()->toString()),
                     'status' => 'offline',
@@ -332,18 +337,17 @@ class MultiTenantPilotSeeder extends Seeder
         $this->command->info('╠══════════════════════════════════════════════════════════════╣');
         $this->command->info('║                                                            ║');
         $this->command->info('║  Tenant: Prodooh                                           ║');
-        $this->command->info('║    • Grupo: Oficina Piso 17 (2 pantallas)                  ║');
-        $this->command->info('║    • Grupo: AIFA Totems (39 totems + 6 columnas + 10 out)  ║');
+        $this->command->info('║    • Grupo: Oficina Piso 17 (2 totems)                     ║');
+        $this->command->info('║    • Grupo: AIFA Totems (39 totems + 6 columnas)           ║');
         $this->command->info('║    • Grupo: AIFA Videowalls (premium+puente+vw+cilíndrica) ║');
-        $this->command->info('║    • Admin: admin-a@prodooh.com / password                 ║');
-        $this->command->info('║    • Device tokens oficina:                                ║');
-        $this->command->info('║      - Totem 1: ' . $deviceTokenA1 . '           ║');
-        $this->command->info('║      - Totem 2: ' . $deviceTokenA2 . '           ║');
+        $this->command->info('║    • Grupo: AIFA Outdoor (10 outdoors)                     ║');
+        $this->command->info('║    • Admin: admin.tenant@prodooh.com / Mexico2026!         ║');
         $this->command->info('║                                                            ║');
-        $this->command->info('║  Tenant: Network Demo                                      ║');
+        $this->command->info('║  Tenant: Media Owner Demo                                  ║');
         $this->command->info('║    • Grupo: Lobby Principal (1 pantalla portrait)           ║');
-        $this->command->info('║    • Admin: admin-b@networkdemo.com / password              ║');
-        $this->command->info('║    • Device token: ' . $deviceTokenB1 . '        ║');
+        $this->command->info('║    • Admin: demo@media.com / Test#2026                     ║');
+        $this->command->info('║                                                            ║');
+        $this->command->info('║  Super Admin: admin@prodooh.com / Mexico2026!              ║');
         $this->command->info('║                                                            ║');
         $this->command->info('╚══════════════════════════════════════════════════════════════╝');
         $this->command->info('');

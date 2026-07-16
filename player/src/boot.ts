@@ -19,6 +19,7 @@ import { BackendApi } from './api/BackendApi';
 import type { BackendApiConfig } from './api/BackendApi';
 import { HeartbeatService } from './sync/HeartbeatService';
 import type { DeviceStatusProvider, CurrentContent } from './sync/HeartbeatService';
+import { ScreenshotService } from './services/ScreenshotService';
 import type { SourceType } from './sources/types';
 import type Database from 'better-sqlite3';
 
@@ -27,8 +28,10 @@ import { JwtRenewer } from './api/JwtRenewer';
 import { ImpressionReporter } from './sync/ImpressionReporter';
 import type { ImpressionRecord } from './sync/ImpressionReporter';
 import { ManifestSyncManager } from './sync/ManifestSyncManager';
-import type { Manifest, ManifestItem } from './sync/ManifestSyncManager';
+import type { Manifest, ManifestItem, LoopTemplateResponse } from './sync/ManifestSyncManager';
 import { ManifestEngine } from './engine/ManifestEngine';
+import { LoopEngine } from './engine/LoopEngine';
+import type { LoopTemplate, LoopSlot, SlotCandidate } from './engine/LoopEngine';
 import { SspPrefetcher } from './engine/SspPrefetcher';
 import type { SspClient, SspContent } from './engine/SspPrefetcher';
 import { BrowserMediaDownloader } from './sync/BrowserMediaDownloader';
@@ -52,6 +55,7 @@ export interface BootResult {
   success: boolean;
   heartbeatService: HeartbeatService | null;
   manifestEngine: ManifestEngine | null;
+  loopEngine: LoopEngine | null;
   manifestSyncManager: ManifestSyncManager | null;
   impressionReporter: ImpressionReporter | null;
   speedOverrideHandler: SpeedOverrideHandler | null;
@@ -130,6 +134,7 @@ export async function bootPlayer(options: BootOptions = {}): Promise<BootResult>
 
   // Step 4: Initialize ManifestEngine components
   let manifestEngine: ManifestEngine | null = null;
+  let loopEngine: LoopEngine | null = null;
   let manifestSyncMgr: ManifestSyncManager | null = null;
   let impressionReporter: ImpressionReporter | null = null;
   let heartbeatService: HeartbeatService | null = null;
@@ -305,6 +310,103 @@ export async function bootPlayer(options: BootOptions = {}): Promise<BootResult>
       manifestEngine!.updateManifest(newManifest);
     });
 
+    // 6a. LoopEngine — Initialize with restored Loop Template if available
+    const restoredTemplate = manifestSyncMgr.getTemplate();
+
+    /**
+     * Creates the onSlotComplete callback for LoopEngine.
+     * Reports impressions for ad slots and handles SSP proof-of-play.
+     * Reads slot_duration_seconds from the template at the time of call.
+     */
+    const createLoopSlotCompleteHandler = () => {
+      return (slot: LoopSlot, candidate: SlotCandidate, result: 'success' | 'failed') => {
+        // Report impressions for ad slots (order_line_creative)
+        if (slot.type === 'ad' && candidate.order_line_id && candidate.creative_id) {
+          // Get the current template duration from ManifestSyncManager
+          const currentTpl = manifestSyncMgr!.getTemplate();
+          const slotDuration = currentTpl?.loop_config.slot_duration_seconds ?? 10;
+          const effectiveDuration = soHandler.getEffectiveDuration(slotDuration);
+          const now = new Date().toISOString();
+          const startedAt = new Date(Date.now() - effectiveDuration * 1000).toISOString();
+          const impression: ImpressionRecord = {
+            order_line_id: candidate.order_line_id,
+            creative_id: candidate.creative_id,
+            started_at: startedAt,
+            ended_at: now,
+            duration_seconds: effectiveDuration,
+            result,
+            mode: soHandler.isWitnessMode() ? 'witness' : 'normal',
+          };
+          impressionReporter!.enqueue(impression);
+        }
+
+        // SSP proof_of_play — confirm reproduction to SSP via retry queue
+        if (slot.type === 'ssp' && result === 'success') {
+          const sspContent = sspPrefetcher.getContent();
+          if (sspContent) {
+            void sspRetryQueue.proofOfPlay(sspContent.printId, sspContent.popUrl);
+          }
+        }
+      };
+    };
+
+    /**
+     * Creates the playbackFn for LoopEngine with speed override support.
+     */
+    const createLoopPlaybackFn = () => {
+      return async (_candidate: SlotCandidate, durationMs: number): Promise<'success' | 'failed'> => {
+        const effectiveDuration = soHandler.getEffectiveDuration(durationMs / 1000);
+        await new Promise((resolve) => setTimeout(resolve, effectiveDuration * 1000));
+        return 'success' as const;
+      };
+    };
+
+    if (restoredTemplate) {
+      loopEngine = new LoopEngine({
+        template: restoredTemplate as LoopTemplate,
+        onSlotStart: options.onManifestItemStart ? (slot, candidate, _iteration) => {
+          // Adapt LoopEngine slot start to ManifestItem callback for renderer
+          const typeMap: Record<string, ManifestItem['type']> = {
+            ad: 'order_line_creative',
+            ssp: 'prodooh_ssp_call',
+            playlist: 'playlist_item',
+          };
+          const syntheticItem: ManifestItem = {
+            position: slot.position,
+            type: typeMap[slot.type] ?? 'order_line_creative',
+            duration_seconds: restoredTemplate.loop_config.slot_duration_seconds,
+            asset_url: candidate.asset_url,
+            checksum_sha256: candidate.checksum_sha256,
+            order_line_id: candidate.order_line_id,
+            creative_id: candidate.creative_id,
+            playlist_item_id: candidate.playlist_item_id,
+          };
+          options.onManifestItemStart!(syntheticItem);
+        } : undefined,
+        onSlotComplete: createLoopSlotCompleteHandler(),
+        sspPrefetcher,
+        playbackFn: createLoopPlaybackFn(),
+      });
+    }
+
+    // 6b. Connect ManifestSyncManager → LoopEngine.updateTemplate() on new version
+    manifestSyncMgr.onTemplateUpdate((newTemplate: LoopTemplateResponse) => {
+      if (loopEngine) {
+        loopEngine.updateTemplate(newTemplate as LoopTemplate);
+      } else {
+        // First template received — create LoopEngine dynamically
+        loopEngine = new LoopEngine({
+          template: newTemplate as LoopTemplate,
+          onSlotStart: undefined, // Will be wired by main.ts via onSlotStartCallback setter
+          onSlotComplete: createLoopSlotCompleteHandler(),
+          sspPrefetcher,
+          playbackFn: createLoopPlaybackFn(),
+        });
+        // Start LoopEngine immediately since template just arrived
+        void loopEngine.run();
+      }
+    });
+
     // 6b. PreviewContentHandler — handles preview_content commands (Req 21.4, 21.5, 21.7)
     previewContentHandler = new PreviewContentHandler({
       manifestEngine,
@@ -343,6 +445,43 @@ export async function bootPlayer(options: BootOptions = {}): Promise<BootResult>
       getPlaylistVersion: () => manifestSyncMgr?.getManifestVersion() ?? '',
     };
 
+    // 9. Screenshot service for on-demand captures
+    const screenshotService = new ScreenshotService({
+      baseUrl: backendUrl,
+      getToken: () => apiClient.getToken(),
+      captureProvider: {
+        async captureFrame(): Promise<Blob> {
+          const root = document.getElementById('player-root');
+          if (!root) throw new Error('No player-root element');
+          // Use canvas to capture the current frame
+          const canvas = document.createElement('canvas');
+          canvas.width = window.innerWidth;
+          canvas.height = window.innerHeight;
+          const ctx = canvas.getContext('2d')!;
+          // Try to capture video element if present
+          const video = root.querySelector('video') as HTMLVideoElement | null;
+          if (video && !video.paused) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          } else {
+            // Fallback: capture image element
+            const img = root.querySelector('img') as HTMLImageElement | null;
+            if (img) {
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            } else {
+              ctx.fillStyle = '#000';
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+          }
+          return new Promise((resolve, reject) => {
+            canvas.toBlob((blob) => {
+              if (blob) resolve(blob);
+              else reject(new Error('Canvas toBlob failed'));
+            }, 'image/jpeg', 0.85);
+          });
+        },
+      },
+    });
+
     heartbeatService = new HeartbeatService({
       client: apiClient,
       statusProvider,
@@ -352,8 +491,9 @@ export async function bootPlayer(options: BootOptions = {}): Promise<BootResult>
             soHandler.handleCommand(command);
           } else if (command.type === 'preview_content') {
             await previewContentHandler!.handleCommand(command);
+          } else if (command.type === 'screenshot') {
+            await screenshotService?.handleCommand(command);
           }
-          // Other command types (screenshot, etc.) handled elsewhere
         },
       },
       intervalMs: 30_000,
@@ -373,6 +513,7 @@ export async function bootPlayer(options: BootOptions = {}): Promise<BootResult>
     success: true,
     heartbeatService,
     manifestEngine,
+    loopEngine,
     manifestSyncManager: manifestSyncMgr,
     impressionReporter,
     speedOverrideHandler,

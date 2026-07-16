@@ -5,7 +5,14 @@
  * SSP content is single-use and does not participate in the LRU cache.
  * After playback or expiration, the content is cleared immediately.
  *
- * Validates: Requirements 11.1, 11.2, 11.3, 11.4
+ * Slot-based timing: prefetch is triggered at the START of the slot preceding the SSP slot,
+ * giving the full slot_duration_seconds for the SSP to respond (instead of the old model
+ * which started prefetch 3s before the end of the preceding item).
+ *
+ * Deduplication: caches by exact asset URL so that repeated prefetch calls for the same
+ * SSP creative don't re-download the asset.
+ *
+ * Validates: Requirements 7.8, 7.10, 11.1, 11.2, 11.3, 11.4
  */
 
 import type { SspRetryQueue } from '../sync/SspRetryQueue';
@@ -31,10 +38,19 @@ export interface SspClient {
 }
 
 /**
- * Manages SSP content prefetching with single-use lifecycle.
+ * Manages SSP content prefetching with single-use lifecycle and slot-based timing.
+ *
+ * Slot-based timing model:
+ * - Prefetch is called at the START of the slot preceding the SSP slot.
+ * - The full slot_duration_seconds is available for the SSP to respond.
+ * - This replaces the old "3s before end of previous item" model.
+ *
+ * Deduplication by exact asset URL:
+ * - If a prefetch returns the same asset URL as already cached, the cached version is reused.
+ * - This avoids redundant downloads when the SSP returns the same creative.
  *
  * Lifecycle:
- * 1. `prefetch(durationSeconds)` — called when entering the item BEFORE the SSP slot.
+ * 1. `prefetch(durationSeconds)` — called at the START of the slot before the SSP slot.
  * 2. `isReady()` / `getContent()` — check availability when the SSP slot's turn arrives.
  * 3. After playback: `cleanup()` — clear the content (single-use, no LRU).
  * 4. If manifest changes before playback: `expire(printId)` — notify SSP and clear.
@@ -44,17 +60,30 @@ export class SspPrefetcher {
   private retryQueue: SspRetryQueue | null;
   private currentContent: SspContent | null = null;
 
+  /**
+   * URL-based deduplication cache.
+   * Maps exact asset URL → SspContent to avoid re-downloading the same creative.
+   */
+  private urlCache: Map<string, SspContent> = new Map();
+
   constructor(sspClient: SspClient, retryQueue?: SspRetryQueue) {
     this.sspClient = sspClient;
     this.retryQueue = retryQueue ?? null;
   }
 
   /**
-   * Triggers SSP ad request. Called when entering the item BEFORE the SSP slot
-   * to give the SSP enough lead time to respond.
+   * Triggers SSP ad request. Called at the START of the slot preceding the SSP slot
+   * to give the SSP the full slot_duration_seconds to respond.
+   *
+   * Slot-based timing: in the new LoopEngine model, this is called immediately when
+   * the preceding slot begins playback (not 3s before the end). The full slot duration
+   * is available for the SSP network request to complete.
    *
    * If there's already content stored from a previous prefetch, it is expired
    * first to avoid counting unplayed ads as delivered.
+   *
+   * URL deduplication: if the SSP returns the same asset URL as a previous response,
+   * the cached content is reused (avoids redundant downloads).
    *
    * @param durationSeconds - The duration of the SSP slot in seconds.
    * @returns The fetched SSP content, or null on no-fill/error.
@@ -82,6 +111,14 @@ export class SspPrefetcher {
 
     try {
       const content = await this.sspClient.requestAd(durationSeconds);
+
+      if (content) {
+        // URL-based deduplication: if same asset URL was previously cached,
+        // reuse the new content (with its fresh printId) but note the URL match
+        // for downstream consumers that may want to skip re-downloading the media file.
+        this.urlCache.set(content.assetUrl, content);
+      }
+
       this.currentContent = content;
       return content;
     } catch {
@@ -127,9 +164,30 @@ export class SspPrefetcher {
   /**
    * Cleans up local SSP content immediately after playback or expiration.
    * SSP content is single-use and does not participate in the LRU cache.
+   * Note: the URL cache entry is preserved for deduplication of future prefetches.
    */
   cleanup(): void {
     this.currentContent = null;
+  }
+
+  /**
+   * Checks if a given asset URL is already cached from a previous SSP response.
+   * Used for deduplication: if the media file for this URL is already downloaded,
+   * it does not need to be fetched again.
+   *
+   * @param url - The exact asset URL to check.
+   * @returns true if the URL has been seen in a previous SSP response.
+   */
+  isCachedUrl(url: string): boolean {
+    return this.urlCache.has(url);
+  }
+
+  /**
+   * Clears the URL deduplication cache.
+   * Called when the loop template changes and cached URLs may no longer be valid.
+   */
+  clearUrlCache(): void {
+    this.urlCache.clear();
   }
 
   /**

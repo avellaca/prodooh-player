@@ -1,15 +1,17 @@
 import { z } from 'zod';
 
+/** Schema for creating a new order — only name and advertiser_name (dates are computed from order lines) */
+export const orderCreateSchema = z.object({
+  name: z.string().min(1, 'El nombre es requerido').max(255),
+  advertiser_name: z.string().min(1, 'El anunciante es requerido').max(255),
+});
+
+/** Schema for editing an existing order (name, advertiser_name, status) */
 export const orderSchema = z.object({
   name: z.string().min(1, 'El nombre es requerido').max(255),
   advertiser_name: z.string().max(255).nullable().optional(),
-  starts_at: z.string().min(1, 'La fecha de inicio es requerida'),
-  ends_at: z.string().min(1, 'La fecha de fin es requerida'),
   status: z.enum(['draft', 'active', 'paused', 'finished']).default('draft'),
-}).refine(
-  (data) => new Date(data.ends_at) >= new Date(data.starts_at),
-  { message: 'La fecha de fin debe ser mayor o igual a la de inicio', path: ['ends_at'] }
-);
+});
 
 export const orderLineSchema = z.object({
   name: z.string().min(1, 'El nombre es requerido').max(255),
@@ -27,6 +29,8 @@ export const orderLineSchema = z.object({
   share_weight: z.coerce.number({ invalid_type_error: 'Debe ser un número' })
     .int('Debe ser un número entero').min(1, 'El peso debe ser al menos 1'),
   status: z.enum(['draft', 'active', 'paused', 'finished']).default('draft'),
+  by_slot: z.boolean().default(false),
+  slots_purchased: z.coerce.number().int('Debe ser un número entero').min(1, 'Debe ser al menos 1').optional(),
 });
 
 export const creativeSchema = z.object({
@@ -46,6 +50,7 @@ export const bulkByResolutionSchema = z.object({
   weight: z.number().int('El peso debe ser un entero').min(1, 'El peso debe ser un entero mayor o igual a 1'),
 });
 
+export type OrderCreateFormValues = z.infer<typeof orderCreateSchema>;
 export type OrderFormValues = z.infer<typeof orderSchema>;
 export type OrderLineFormValues = z.infer<typeof orderLineSchema>;
 export type CreativeFormValues = z.infer<typeof creativeSchema>;

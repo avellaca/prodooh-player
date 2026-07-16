@@ -209,10 +209,7 @@ class PriorityEngineTest extends TestCase
 
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
-            'name' => 'Test Order',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-10',
-            'status' => 'active',
+            'name' => 'Test Order',            'status' => 'active',
         ]);
 
         $line = OrderLine::create([
@@ -243,10 +240,7 @@ class PriorityEngineTest extends TestCase
 
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
-            'name' => 'Test Order',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-10',
-            'status' => 'active',
+            'name' => 'Test Order',            'status' => 'active',
         ]);
 
         $line = OrderLine::create([
@@ -296,10 +290,7 @@ class PriorityEngineTest extends TestCase
 
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
-            'name' => 'Test Order',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-10',
-            'status' => 'active',
+            'name' => 'Test Order',            'status' => 'active',
         ]);
 
         $line = OrderLine::create([
@@ -327,10 +318,7 @@ class PriorityEngineTest extends TestCase
 
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
-            'name' => 'Test Order',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-10',
-            'status' => 'active',
+            'name' => 'Test Order',            'status' => 'active',
         ]);
 
         $line = OrderLine::create([
@@ -357,10 +345,7 @@ class PriorityEngineTest extends TestCase
 
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
-            'name' => 'Test Order',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-10',
-            'status' => 'active',
+            'name' => 'Test Order',            'status' => 'active',
         ]);
 
         $line = OrderLine::create([
@@ -412,10 +397,7 @@ class PriorityEngineTest extends TestCase
 
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
-            'name' => 'Active Order',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
-            'status' => 'active',
+            'name' => 'Active Order',            'status' => 'active',
         ]);
 
         $line = OrderLine::create([
@@ -459,10 +441,7 @@ class PriorityEngineTest extends TestCase
 
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
-            'name' => 'Group Target Order',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
-            'status' => 'active',
+            'name' => 'Group Target Order',            'status' => 'active',
         ]);
 
         $line = OrderLine::create([
@@ -505,10 +484,7 @@ class PriorityEngineTest extends TestCase
 
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
-            'name' => 'Draft Order',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
-            'status' => 'draft',
+            'name' => 'Draft Order',            'status' => 'draft',
         ]);
 
         $line = OrderLine::create([
@@ -550,10 +526,7 @@ class PriorityEngineTest extends TestCase
 
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
-            'name' => 'Active Order',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
-            'status' => 'active',
+            'name' => 'Active Order',            'status' => 'active',
         ]);
 
         $line = OrderLine::create([
@@ -607,10 +580,7 @@ class PriorityEngineTest extends TestCase
 
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
-            'name' => 'Active Order',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
-            'status' => 'active',
+            'name' => 'Active Order',            'status' => 'active',
         ]);
 
         // OrderLine has active_dates that do NOT include today (2026-08-05)
@@ -655,10 +625,7 @@ class PriorityEngineTest extends TestCase
 
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
-            'name' => 'Active Order',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-09-30',
-            'status' => 'active',
+            'name' => 'Active Order',            'status' => 'active',
         ]);
 
         $line = OrderLine::create([
@@ -711,10 +678,7 @@ class PriorityEngineTest extends TestCase
 
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
-            'name' => 'Active Order',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
-            'status' => 'active',
+            'name' => 'Active Order',            'status' => 'active',
         ]);
 
         $line = OrderLine::create([
@@ -757,10 +721,7 @@ class PriorityEngineTest extends TestCase
 
         $order = Order::create([
             'tenant_id' => $this->tenant->id,
-            'name' => 'Active Order',
-            'starts_at' => '2026-08-01',
-            'ends_at' => '2026-08-31',
-            'status' => 'active',
+            'name' => 'Active Order',            'status' => 'active',
         ]);
 
         $line = OrderLine::create([

@@ -14,6 +14,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->alias([
             'role' => \App\Http\Middleware\RoleGuard::class,
+            'authorize' => \App\Http\Middleware\RoleAuthorization::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

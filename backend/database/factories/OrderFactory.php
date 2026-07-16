@@ -24,9 +24,7 @@ class OrderFactory extends Factory
             'tenant_id' => Tenant::factory(),
             'name' => fake()->sentence(3),
             'advertiser_name' => fake()->company(),
-            'starts_at' => now()->subDays(5),
-            'ends_at' => now()->addDays(30),
-            'status' => 'active',
+            'status' => 'draft',
         ];
     }
 }

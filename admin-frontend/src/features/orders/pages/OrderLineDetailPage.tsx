@@ -5,6 +5,7 @@ import { format } from 'date-fns';
 import { ArrowLeft, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { AuditLogModal } from '@/features/audit';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -26,15 +27,19 @@ import { LoadingState } from '@/components/shared/LoadingState';
 import { ErrorState } from '@/components/shared/ErrorState';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 
-import { useOrder, useResolutions } from '../hooks';
+import { useOrder, useResolutions, useActivateOrderLine } from '../hooks';
+import { useAuth } from '@/hooks/use-auth';
 import { orderLinesApi } from '../api';
+import type { AvailabilityInfo } from '../api';
 import { OrderLineForm } from '../components/OrderLineForm';
+import { AvailabilityAlertModal } from '../components/AvailabilityAlertModal';
 import { ResolutionDashboard } from '../components/ResolutionDashboard';
 import { ResolutionGroupCard } from '../components/ResolutionGroupCard';
 import { TargetSelector } from '../components/TargetSelector';
 import type { OrderLine, ResolutionGroup } from '../types';
 import type { OrderLineFormValues } from '../schemas';
 import { queryClient } from '@/lib/query-client';
+import { useTenant } from '@/features/tenants/hooks';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -76,8 +81,12 @@ function resolutionKey(group: ResolutionGroup): string {
 export default function OrderLineDetailPage() {
   const { id: orderId, lineId } = useParams<{ id: string; lineId: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isTrafficker = user?.role === 'trafficker';
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [availabilityModalOpen, setAvailabilityModalOpen] = useState(false);
+  const [availabilityInfo, setAvailabilityInfo] = useState<AvailabilityInfo | null>(null);
 
   // Refs for scroll-to-group behavior
   const groupRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -96,6 +105,17 @@ export default function OrderLineDetailPage() {
   });
 
   const { data: order } = useOrder(orderId);
+
+  // Fetch tenant config for ad_slots calculation (used by "Por Slot" toggle)
+  const { data: tenant } = useTenant(order?.tenant_id);
+  const adSlots = tenant
+    ? tenant.num_slots - tenant.ssp_slots - tenant.playlist_slots
+    : undefined;
+  // Calculate loops_per_day: operating_window / (num_slots × slot_duration)
+  // Default operating window: 16h (57600s), slot_duration from tenant.default_duration_seconds or 10s
+  const loopsPerDay = tenant
+    ? Math.floor(57600 / (tenant.num_slots * (tenant.default_duration_seconds ?? 10)))
+    : undefined;
 
   const {
     data: resolutions,
@@ -127,6 +147,18 @@ export default function OrderLineDetailPage() {
     },
     onError: (error: Error & { response?: { data?: { message?: string } } }) => {
       toast.error(error.response?.data?.message ?? 'Error al eliminar la línea');
+    },
+  });
+
+  // ─── Activation with availability check ────────────────────────────────────
+
+  const activateOrderLine = useActivateOrderLine(orderId!, {
+    onInsufficientAvailability: (response) => {
+      setAvailabilityInfo(response.availability);
+      setAvailabilityModalOpen(true);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['order-lines', lineId] });
     },
   });
 
@@ -184,29 +216,37 @@ export default function OrderLineDetailPage() {
         <Badge variant={STATUS_VARIANTS[orderLine.status]}>
           {STATUS_LABELS[orderLine.status]}
         </Badge>
-        <Select
-          value={orderLine.status}
-          onValueChange={(newStatus) => {
-            // Prevent activating if parent order isn't active
-            if (newStatus === 'active' && order && order.status !== 'active') {
-              toast.error('No se puede activar una línea de un pedido que no está activo');
-              return;
-            }
-            updateOrderLine.mutate({ status: newStatus });
-          }}
-        >
-          <SelectTrigger className="w-[150px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="draft">Borrador</SelectItem>
-            <SelectItem value="active" disabled={order?.status !== 'active'}>
-              Activo
-            </SelectItem>
-            <SelectItem value="paused">Pausado</SelectItem>
-            <SelectItem value="finished">Finalizado</SelectItem>
-          </SelectContent>
-        </Select>
+        {!isTrafficker && (
+          <Select
+            value={orderLine.status}
+            onValueChange={(newStatus) => {
+              // Prevent activating if parent order isn't active
+              if (newStatus === 'active' && order && order.status !== 'active') {
+                toast.error('No se puede activar una línea de un pedido que no está activo');
+                return;
+              }
+              // Use dedicated activation endpoint with availability check
+              if (newStatus === 'active') {
+                activateOrderLine.mutate({ id: lineId!, force: false });
+                return;
+              }
+              updateOrderLine.mutate({ status: newStatus });
+            }}
+          >
+            <SelectTrigger className="w-[150px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="draft">Borrador</SelectItem>
+              <SelectItem value="active" disabled={order?.status !== 'active'}>
+                Activo
+              </SelectItem>
+              <SelectItem value="paused">Pausado</SelectItem>
+              <SelectItem value="finished">Finalizado</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
+        <AuditLogModal auditableType="order-lines" auditableId={lineId!} entityName={orderLine?.name} />
         <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
           <Pencil className="h-4 w-4" />
           Editar
@@ -321,10 +361,14 @@ export default function OrderLineDetailPage() {
               delivery_pace: orderLine.delivery_pace,
               share_weight: orderLine.share_weight,
               status: orderLine.status,
+              by_slot: orderLine.by_slot ?? false,
+              slots_purchased: orderLine.slots_purchased ?? undefined,
             }}
             parentOrder={order ? { starts_at: order.starts_at?.split('T')[0] ?? '', ends_at: order.ends_at?.split('T')[0] ?? '' } : { starts_at: orderLine.starts_at?.split('T')[0] ?? '', ends_at: orderLine.ends_at?.split('T')[0] ?? '' }}
             onSubmit={(data) => updateOrderLine.mutate(data)}
             isSubmitting={updateOrderLine.isPending}
+            adSlots={adSlots}
+            loopsPerDay={loopsPerDay}
           />
         </DialogContent>
       </Dialog>
@@ -339,6 +383,32 @@ export default function OrderLineDetailPage() {
         confirmLabel="Eliminar"
         variant="destructive"
       />
+
+      {/* Availability Alert Modal — shown when activating with insufficient capacity */}
+      {availabilityInfo && (
+        <AvailabilityAlertModal
+          open={availabilityModalOpen}
+          onOpenChange={setAvailabilityModalOpen}
+          availability={availabilityInfo}
+          isConfirming={activateOrderLine.isPending}
+          onConfirm={() => {
+            activateOrderLine.mutate(
+              { id: lineId!, force: true },
+              {
+                onSuccess: () => {
+                  setAvailabilityModalOpen(false);
+                  setAvailabilityInfo(null);
+                },
+              }
+            );
+          }}
+          onModify={() => {
+            setAvailabilityModalOpen(false);
+            setAvailabilityInfo(null);
+            setEditOpen(true);
+          }}
+        />
+      )}
     </div>
   );
 }

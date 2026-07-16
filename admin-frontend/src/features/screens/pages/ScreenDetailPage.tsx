@@ -5,11 +5,16 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { differenceInMinutes, format } from "date-fns";
 import { es } from "date-fns/locale";
 import { Pencil, RefreshCw, Loader2, Trash2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 
 import { useScreen, useScreenshots, useUpdateScreen, useRegenerateToken, useDeleteScreen } from "../hooks";
 import { updateScreenSchema, type UpdateScreenInput } from "@/schemas/screen.schema";
 import { ScreenshotGallery } from "../components/ScreenshotGallery";
 import { ScheduleEditor } from "../components/ScheduleEditor";
+import { WitnessControls } from "../components/WitnessControls";
+import { settingsApi } from "@/features/settings/api";
+import { useAuth } from "@/hooks/use-auth";
+import { useTenantContext } from "@/contexts/TenantContext";
 
 import { LoadingState } from "@/components/shared/LoadingState";
 import { ErrorState } from "@/components/shared/ErrorState";
@@ -42,6 +47,15 @@ export default function ScreenDetailPage() {
   const navigate = useNavigate();
   const { data: screen, isLoading, isError, refetch } = useScreen(id);
   const { data: screenshots } = useScreenshots(id);
+
+  const { user } = useAuth();
+  const { selectedTenantId } = useTenantContext();
+  const tenantId = user?.role === 'super_admin' ? selectedTenantId : user?.tenant_id;
+  const { data: loopConfig } = useQuery({
+    queryKey: ['loop-config', tenantId],
+    queryFn: () => settingsApi.getLoopConfig(tenantId!),
+    enabled: !!tenantId,
+  });
 
   const [showConfirmRegenerate, setShowConfirmRegenerate] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
@@ -84,16 +98,26 @@ export default function ScreenDetailPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div>
-            <h1 className="text-2xl font-bold">{screen.name}</h1>
-            <p className="text-sm text-muted-foreground">
-              {screen.venue_id}
-            </p>
+        <div>
+          <h1 className="text-2xl font-bold">{screen.name}</h1>
+          <div className="flex items-center gap-2 mt-1">
+            <Badge variant={screen.enabled !== false ? 'success' : 'secondary'}>
+              {screen.enabled !== false ? 'Activa' : 'Desactivada'}
+            </Badge>
+            <span className="relative group">
+              <Badge
+                variant={isOnline ? "success" : "destructive"}
+                className="cursor-default"
+              >
+                {isOnline ? "En línea" : "Fuera de línea"}
+              </Badge>
+              {screen.last_heartbeat && (
+                <span className="absolute left-0 top-full mt-1 hidden group-hover:block bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap z-50">
+                  Último heartbeat: {format(new Date(screen.last_heartbeat), "dd/MM/yyyy HH:mm:ss", { locale: es })}
+                </span>
+              )}
+            </span>
           </div>
-          <Badge variant={screen.enabled !== false ? 'success' : 'secondary'}>
-            {screen.enabled !== false ? 'Activa' : 'Desactivada'}
-          </Badge>
         </div>
         <div className="flex gap-2">
           <Button
@@ -130,10 +154,10 @@ export default function ScreenDetailPage() {
       {/* Basic Info Card */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Información básica</CardTitle>
+          <CardTitle className="text-lg">Información de la pantalla</CardTitle>
         </CardHeader>
         <CardContent>
-          <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <div>
               <dt className="text-sm font-medium text-muted-foreground">Network</dt>
               <dd className="text-sm">{screen.tenant?.name ?? screen.tenant_id}</dd>
@@ -158,23 +182,68 @@ export default function ScreenDetailPage() {
                 {screen.resolution_width} × {screen.resolution_height}
               </dd>
             </div>
-            <div>
-              <dt className="text-sm font-medium text-muted-foreground">Estado</dt>
-              <dd className="flex items-center gap-2">
-                <Badge variant={isOnline ? "success" : "destructive"}>
-                  {isOnline ? "Online" : "Offline"}
-                </Badge>
-                {screen.last_heartbeat && (
-                  <span className="text-xs text-muted-foreground">
-                    Último heartbeat:{" "}
-                    {format(new Date(screen.last_heartbeat), "dd/MM/yyyy HH:mm:ss", {
-                      locale: es,
-                    })}
-                  </span>
-                )}
-              </dd>
-            </div>
           </dl>
+
+          {/* Loop / Inventario info */}
+          {(() => {
+            const numSlots = screen.num_slots ?? screen.screen_group?.num_slots ?? loopConfig?.num_slots ?? 10;
+            const sspSlots = loopConfig?.ssp_slots ?? 2;
+            const playlistSlots = loopConfig?.playlist_slots ?? 1;
+            const adSlots = numSlots - sspSlots - playlistSlots;
+            const slotDuration = screen.screen_group?.duration_seconds ?? 10;
+
+            // Resolve operating window from schedule
+            const schedule = screen.schedule ?? screen.screen_group?.schedule ?? null;
+            let operatingHours = 24;
+            let operatingSeconds = 86400;
+            if (schedule && schedule.length > 0) {
+              operatingSeconds = schedule.reduce((total, rule) => {
+                const [sh, sm] = (rule.start ?? '00:00').split(':').map(Number);
+                const [eh, em] = (rule.end ?? '24:00').split(':').map(Number);
+                return total + ((eh * 60 + em) - (sh * 60 + sm)) * 60;
+              }, 0);
+              operatingHours = operatingSeconds / 3600;
+            }
+
+            const loopsPerDay = Math.floor(operatingSeconds / (numSlots * slotDuration));
+            const spotsPerDay = loopsPerDay * (adSlots > 0 ? adSlots : 0);
+
+            const numSlotsSource = screen.num_slots
+              ? 'Pantalla'
+              : screen.screen_group?.num_slots
+                ? 'Grupo'
+                : 'Network';
+
+            const durationSource = screen.screen_group?.duration_seconds ? 'Grupo' : 'Network';
+
+            return (
+              <div className="mt-4 pt-4 border-t">
+                <h4 className="text-sm font-semibold text-muted-foreground mb-3">Inventario</h4>
+                <dl className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+                  <div>
+                    <dt className="text-sm font-medium text-muted-foreground">Horario operativo</dt>
+                    <dd className="text-sm">{operatingHours === 24 ? '24 hrs' : `${operatingHours.toFixed(1)} hrs`}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-sm font-medium text-muted-foreground">Duración del spot</dt>
+                    <dd className="text-sm">{slotDuration}s <span className="text-xs text-muted-foreground">({durationSource})</span></dd>
+                  </div>
+                  <div>
+                    <dt className="text-sm font-medium text-muted-foreground">Slots de loop</dt>
+                    <dd className="text-sm">{numSlots} <span className="text-xs text-muted-foreground">({numSlotsSource})</span></dd>
+                  </div>
+                  <div>
+                    <dt className="text-sm font-medium text-muted-foreground">Loops/día</dt>
+                    <dd className="text-sm">{loopsPerDay.toLocaleString()}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-sm font-medium text-muted-foreground">Spots/día</dt>
+                    <dd className="text-sm font-semibold">{spotsPerDay.toLocaleString()}</dd>
+                  </div>
+                </dl>
+              </div>
+            );
+          })()}
         </CardContent>
       </Card>
 
@@ -185,13 +254,22 @@ export default function ScreenDetailPage() {
         groupName={screen.screen_group?.name}
       />
 
-      {/* Screenshots Section */}
+      {/* Testigos Section */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Screenshots</CardTitle>
+          <CardTitle className="text-lg">Testigos</CardTitle>
         </CardHeader>
-        <CardContent>
-          <ScreenshotGallery screenshots={screenshots ?? []} />
+        <CardContent className="space-y-4">
+          {/* Controls */}
+          <div className="flex flex-wrap gap-3">
+            <WitnessControls screenId={id!} numSlots={screen.num_slots ?? screen.screen_group?.num_slots ?? loopConfig?.num_slots ?? 10} slotDuration={screen.screen_group?.duration_seconds ?? 10} />
+          </div>
+
+          {/* Screenshots Gallery */}
+          <div className="pt-3 border-t">
+            <h4 className="text-sm font-medium text-muted-foreground mb-3">Capturas</h4>
+            <ScreenshotGallery screenshots={screenshots ?? []} screenId={id} orientation={screen.orientation} />
+          </div>
         </CardContent>
       </Card>
 
@@ -265,6 +343,12 @@ export default function ScreenDetailPage() {
           );
         }}
         isPending={updateScreen.isPending}
+        inheritedValues={{
+          num_slots: screen.screen_group?.num_slots ?? loopConfig?.num_slots ?? 10,
+          duration_seconds: screen.screen_group?.duration_seconds ?? 10,
+          num_slots_source: screen.screen_group?.num_slots ? 'Grupo' : 'Network',
+          duration_source: screen.screen_group?.duration_seconds ? 'Grupo' : 'Network',
+        }}
       />
     </div>
   );
@@ -275,12 +359,21 @@ interface EditScreenDialogProps {
   onOpenChange: (open: boolean) => void;
   screen: {
     name: string;
+    venue_id: string;
     orientation: "landscape" | "portrait";
     resolution_width: number;
     resolution_height: number;
+    num_slots?: number | null;
+    screen_group?: { num_slots?: number | null; duration_seconds?: number | null } | null;
   };
   onSubmit: (data: UpdateScreenInput) => void;
   isPending: boolean;
+  inheritedValues?: {
+    num_slots: number;
+    duration_seconds: number;
+    num_slots_source: string;
+    duration_source: string;
+  };
 }
 
 function EditScreenDialog({
@@ -289,6 +382,7 @@ function EditScreenDialog({
   screen,
   onSubmit,
   isPending,
+  inheritedValues,
 }: EditScreenDialogProps) {
   const {
     register,
@@ -300,21 +394,42 @@ function EditScreenDialog({
     resolver: zodResolver(updateScreenSchema),
     values: {
       name: screen.name,
+      venue_id: screen.venue_id,
       orientation: screen.orientation,
       resolution_width: screen.resolution_width,
       resolution_height: screen.resolution_height,
+      num_slots: (screen as any).num_slots ?? null,
+      duration_seconds: null,
     },
   });
 
   const orientation = watch("orientation");
+  const currentNumSlots = watch("num_slots");
+  const currentDuration = watch("duration_seconds");
+
+  // A field is an override only if it has a real positive numeric value
+  const numSlotsIsOverride = currentNumSlots !== null && currentNumSlots !== undefined && currentNumSlots !== '' && Number(currentNumSlots) > 0;
+  const durationIsOverride = currentDuration !== null && currentDuration !== undefined && currentDuration !== '' && Number(currentDuration) > 0;
+
+  function handleFormSubmit(data: UpdateScreenInput) {
+    // Explicitly send null for fields that should inherit (cleared overrides)
+    const numSlots = data.num_slots && Number(data.num_slots) > 0 ? Number(data.num_slots) : null;
+    const duration = data.duration_seconds && Number(data.duration_seconds) > 0 ? Number(data.duration_seconds) : null;
+    const cleaned: Record<string, unknown> = {
+      ...data,
+      num_slots: numSlots,
+      duration_seconds: duration,
+    };
+    onSubmit(cleaned as UpdateScreenInput);
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>Editar pantalla</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="edit-name">Nombre</Label>
             <Input
@@ -324,6 +439,18 @@ function EditScreenDialog({
             />
             {errors.name && (
               <p className="text-sm text-red-500">{errors.name.message}</p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="edit-venue_id">Venue ID</Label>
+            <Input
+              id="edit-venue_id"
+              {...register("venue_id")}
+              className={errors.venue_id ? "border-red-500" : ""}
+            />
+            {errors.venue_id && (
+              <p className="text-sm text-red-500">{errors.venue_id.message}</p>
             )}
           </div>
 
@@ -374,6 +501,73 @@ function EditScreenDialog({
                 </p>
               )}
             </div>
+          </div>
+
+          {/* Num slots with inheritance */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="edit-num_slots">Número de slots</Label>
+              {inheritedValues && !numSlotsIsOverride && (
+                <span className="text-xs text-muted-foreground">
+                  Heredado: {inheritedValues.num_slots} ({inheritedValues.num_slots_source})
+                </span>
+              )}
+              {numSlotsIsOverride && inheritedValues && (
+                <button
+                  type="button"
+                  className="text-xs text-primary hover:underline"
+                  onClick={() => setValue("num_slots", null as any)}
+                >
+                  Usar heredado ({inheritedValues.num_slots})
+                </button>
+              )}
+            </div>
+            <Input
+              id="edit-num_slots"
+              type="number"
+              min={1}
+              max={100}
+              placeholder={inheritedValues ? `${inheritedValues.num_slots} (heredado)` : "10"}
+              {...register("num_slots")}
+            />
+            {numSlotsIsOverride && inheritedValues && currentNumSlots !== inheritedValues.num_slots && (
+              <p className="text-xs text-amber-600">
+                Override: esta pantalla usará {currentNumSlots} slots en vez de {inheritedValues.num_slots} del {inheritedValues.num_slots_source}.
+              </p>
+            )}
+          </div>
+
+          {/* Duration with inheritance */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="edit-duration">Duración del spot (s)</Label>
+              {inheritedValues && !durationIsOverride && (
+                <span className="text-xs text-muted-foreground">
+                  Heredado: {inheritedValues.duration_seconds}s ({inheritedValues.duration_source})
+                </span>
+              )}
+              {durationIsOverride && inheritedValues && (
+                <button
+                  type="button"
+                  className="text-xs text-primary hover:underline"
+                  onClick={() => setValue("duration_seconds", null as any)}
+                >
+                  Usar heredado ({inheritedValues.duration_seconds}s)
+                </button>
+              )}
+            </div>
+            <Input
+              id="edit-duration"
+              type="number"
+              min={1}
+              placeholder={inheritedValues ? `${inheritedValues.duration_seconds} (heredado)` : "10"}
+              {...register("duration_seconds")}
+            />
+            {durationIsOverride && inheritedValues && currentDuration !== inheritedValues.duration_seconds && (
+              <p className="text-xs text-amber-600">
+                Override: esta pantalla usará {currentDuration}s en vez de {inheritedValues.duration_seconds}s del {inheritedValues.duration_source}.
+              </p>
+            )}
           </div>
 
           <DialogFooter>

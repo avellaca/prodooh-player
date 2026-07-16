@@ -22,6 +22,7 @@ const superAdminLinks = [
   { to: '/playlists', label: 'Playlists' },
   { to: '/biblioteca', label: 'Biblioteca' },
   { to: '/analytics', label: 'Analytics' },
+  { to: '/settings', label: 'Configuración' },
 ];
 
 const tenantAdminLinks = [
@@ -31,6 +32,12 @@ const tenantAdminLinks = [
   { to: '/playlists', label: 'Playlists' },
   { to: '/biblioteca', label: 'Biblioteca' },
   { to: '/analytics', label: 'Analytics' },
+  { to: '/settings', label: 'Configuración' },
+];
+
+const trafficherLinks = [
+  { to: '/orders', label: 'Pedidos' },
+  { to: '/biblioteca', label: 'Biblioteca' },
 ];
 
 export default function Header() {
@@ -38,6 +45,7 @@ export default function Header() {
   const { selectedTenantId, setSelectedTenantId } = useTenantContext();
 
   const isSuperAdmin = user?.role === 'super_admin';
+  const isTrafficker = user?.role === 'trafficker';
 
   const { data: tenants } = useQuery({
     queryKey: ['tenants'],
@@ -45,7 +53,11 @@ export default function Header() {
     enabled: isSuperAdmin,
   });
 
-  const navLinks = isSuperAdmin ? superAdminLinks : tenantAdminLinks;
+  const navLinks = isSuperAdmin
+    ? superAdminLinks
+    : isTrafficker
+      ? trafficherLinks
+      : tenantAdminLinks;
 
   return (
     <header className="bg-navy text-white">

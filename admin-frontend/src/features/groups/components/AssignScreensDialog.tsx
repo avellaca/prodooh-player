@@ -33,21 +33,32 @@ export function AssignScreensDialog({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(currentScreenIds));
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Filter screens by search query
+  // Filter and sort screens: selected first, then alphabetically by name
   const filteredScreens = useMemo(() => {
     if (!screens) return [];
-    if (!searchQuery.trim()) return screens;
-    const q = searchQuery.toLowerCase();
-    return screens.filter((s) => {
-      const resolution = `${s.resolution_width}x${s.resolution_height}`;
-      return (
-        s.name.toLowerCase().includes(q) ||
-        s.venue_id.toLowerCase().includes(q) ||
-        resolution.includes(q) ||
-        s.orientation.toLowerCase().includes(q)
-      );
+    let result = screens;
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter((s) => {
+        const resolution = `${s.resolution_width}x${s.resolution_height}`;
+        return (
+          s.name.toLowerCase().includes(q) ||
+          s.venue_id.toLowerCase().includes(q) ||
+          resolution.includes(q) ||
+          s.orientation.toLowerCase().includes(q)
+        );
+      });
+    }
+
+    // Sort: selected screens first (by name), then unselected (by name)
+    return [...result].sort((a, b) => {
+      const aSelected = selectedIds.has(a.id) ? 0 : 1;
+      const bSelected = selectedIds.has(b.id) ? 0 : 1;
+      if (aSelected !== bSelected) return aSelected - bSelected;
+      return a.name.localeCompare(b.name, 'es', { numeric: true, sensitivity: 'base' });
     });
-  }, [screens, searchQuery]);
+  }, [screens, searchQuery, selectedIds]);
 
   // Check if all filtered screens are selected
   const allFilteredSelected = filteredScreens.length > 0 &&
@@ -90,7 +101,6 @@ export function AssignScreensDialog({
 
   function handleOpenChange(isOpen: boolean) {
     if (!isOpen) {
-      setSelectedIds(new Set(currentScreenIds));
       setSearchQuery("");
     }
     onOpenChange(isOpen);

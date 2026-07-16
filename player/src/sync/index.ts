@@ -29,4 +29,13 @@ export { ImpressionReporter } from './ImpressionReporter';
 export type { ImpressionRecord } from './ImpressionReporter';
 
 export { ManifestSyncManager } from './ManifestSyncManager';
-export type { Manifest, ManifestItem, ManifestUpdateCallback } from './ManifestSyncManager';
+export type {
+  Manifest,
+  ManifestItem,
+  ManifestUpdateCallback,
+  LoopTemplateUpdateCallback,
+  LoopTemplateResponse,
+  LoopSlotContract,
+  CandidateContract,
+  CachedAsset,
+} from './ManifestSyncManager';

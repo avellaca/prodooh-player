@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { format } from 'date-fns';
 import { ArrowLeft, Edit, Plus, Pause, Play, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 
+import { queryClient } from '@/lib/query-client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,6 +40,7 @@ import { LoadingState } from '@/components/shared/LoadingState';
 import { ErrorState } from '@/components/shared/ErrorState';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 
+import { useAuth } from '@/hooks/use-auth';
 import {
   useOrder,
   useOrderLines,
@@ -49,8 +53,12 @@ import {
 import { orderSchema } from '../schemas';
 import type { OrderFormValues } from '../schemas';
 import type { Order, OrderLine } from '../types';
+import { orderLinesApi } from '../api';
 import { OrderLineForm, type OrderLineSubmitPayload } from '../components/OrderLineForm';
 import { sumOrderLineSpots } from '../utils/orderline-calculations';
+import { AuditLogModal } from '@/features/audit';
+import { useTenant } from '@/features/tenants/hooks';
+import { api } from '@/lib/axios';
 
 // ─── Status helpers ──────────────────────────────────────────────────────────
 
@@ -95,6 +103,50 @@ export default function OrderDetailPage() {
   const { data: orderLines, isLoading: linesLoading, isError: linesError, refetch: refetchLines } = useOrderLines(id);
   const { data: deliveryProgress } = useDeliveryProgress(id);
 
+  // Fetch tenant config for ad_slots / loopsPerDay (used by "Por Slot" toggle in OrderLineForm)
+  const { data: tenant } = useTenant(order?.tenant_id);
+  const sspSlots = tenant?.ssp_slots ?? 0;
+  const playlistSlots = tenant?.playlist_slots ?? 0;
+  const tenantNumSlots = tenant?.num_slots ?? 10;
+  const adSlots = tenantNumSlots - sspSlots - playlistSlots;
+  const loopsPerDay = tenant
+    ? Math.floor(57600 / (tenantNumSlots * (tenant.default_duration_seconds ?? 10)))
+    : undefined;
+
+  // Compute min/max ad_slots from all screens in the network
+  const { data: allScreens } = useQuery({
+    queryKey: ['screens'],
+    queryFn: () => api.get<{ data: Array<{ num_slots: number | null; screen_group?: { num_slots: number | null; duration_seconds: number | null } | null }> }>('/admin/screens').then(r => r.data.data),
+    enabled: !!tenant,
+  });
+  const { minAdSlots, maxAdSlots, minSpotsPerDay, maxSpotsPerDay } = (() => {
+    if (!allScreens || allScreens.length === 0 || !tenant) {
+      return { minAdSlots: adSlots, maxAdSlots: adSlots, minSpotsPerDay: undefined, maxSpotsPerDay: undefined };
+    }
+
+    const configs = allScreens.map((s: any) => {
+      const effectiveSlots = s.num_slots ?? s.screen_group?.num_slots ?? tenantNumSlots;
+      const effectiveSsp = s.ssp_slots ?? s.screen_group?.ssp_slots ?? sspSlots;
+      const effectivePlaylist = s.playlist_slots ?? s.screen_group?.playlist_slots ?? playlistSlots;
+      const effectiveDuration = s.screen_group?.duration_seconds ?? tenant.default_duration_seconds ?? 10;
+      const screenAdSlots = effectiveSlots - effectiveSsp - effectivePlaylist;
+      const operatingSeconds = 61200; // 17h (06:00-23:00)
+      const screenLoopsPerDay = Math.floor(operatingSeconds / (effectiveSlots * effectiveDuration));
+      const spotsPerDay = screenLoopsPerDay * (screenAdSlots > 0 ? screenAdSlots : 0);
+      return { adSlots: screenAdSlots > 0 ? screenAdSlots : 1, spotsPerDay };
+    });
+
+    const adSlotsValues = configs.map(c => c.adSlots);
+    const spotsValues = configs.map(c => c.spotsPerDay).filter(v => v > 0);
+
+    return {
+      minAdSlots: Math.min(...adSlotsValues),
+      maxAdSlots: Math.max(...adSlotsValues),
+      minSpotsPerDay: spotsValues.length > 0 ? Math.min(...spotsValues) : undefined,
+      maxSpotsPerDay: spotsValues.length > 0 ? Math.max(...spotsValues) : undefined,
+    };
+  })();
+
   // Mutations
   const updateOrder = useUpdateOrder();
   const createOrderLine = useCreateOrderLine(id ?? '');
@@ -107,6 +159,10 @@ export default function OrderDetailPage() {
   const [deletingLineId, setDeletingLineId] = useState<string | null>(null);
   const [activateOrderConfirmOpen, setActivateOrderConfirmOpen] = useState(false);
   const [pendingOrderStatus, setPendingOrderStatus] = useState<string | null>(null);
+
+  // Role check
+  const { user } = useAuth();
+  const isTrafficker = user?.role === 'trafficker';
 
   // ─── Loading / Error states ──────────────────────────────────────────────
 
@@ -141,7 +197,9 @@ export default function OrderDetailPage() {
           <h1 className="text-2xl font-bold">{order.name}</h1>
           <p className="text-sm text-muted-foreground">
             {order.advertiser_name && `${order.advertiser_name} · `}
-            {formatDate(order.starts_at)} — {formatDate(order.ends_at)}
+            {order.starts_at && order.ends_at
+              ? `${formatDate(order.starts_at)} — ${formatDate(order.ends_at)}`
+              : 'Sin fechas (agrega líneas de pedido)'}
           </p>
         </div>
       </div>
@@ -150,10 +208,13 @@ export default function OrderDetailPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <CardTitle className="text-lg">Información del pedido</CardTitle>
-          <Button variant="outline" size="sm" onClick={() => setEditOrderOpen(true)}>
-            <Edit className="mr-2 h-4 w-4" />
-            Editar pedido
-          </Button>
+          <div className="flex gap-2">
+            <AuditLogModal auditableType="orders" auditableId={order.id} entityName={order.name} />
+            <Button variant="outline" size="sm" onClick={() => setEditOrderOpen(true)}>
+              <Edit className="mr-2 h-4 w-4" />
+              Editar pedido
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -167,32 +228,42 @@ export default function OrderDetailPage() {
             </div>
             <div>
               <p className="text-sm font-medium text-muted-foreground">Fechas</p>
-              <p className="text-sm">{formatDate(order.starts_at)} → {formatDate(order.ends_at)}</p>
+              <p className="text-sm text-muted-foreground italic">
+                {order.starts_at && order.ends_at
+                  ? `${formatDate(order.starts_at)} → ${formatDate(order.ends_at)}`
+                  : 'Calculadas a partir de las líneas de pedido'}
+              </p>
             </div>
             <div>
               <p className="text-sm font-medium text-muted-foreground">Estado</p>
-              <Select
-                value={order.status}
-                onValueChange={(newStatus) => {
-                  if (order.status === 'draft' && newStatus === 'active') {
-                    // When activating from draft, ask about order lines
-                    setPendingOrderStatus(newStatus);
-                    setActivateOrderConfirmOpen(true);
-                  } else {
-                    updateOrder.mutate({ id: order.id, data: { status: newStatus } });
-                  }
-                }}
-              >
-                <SelectTrigger className="w-[140px] mt-1">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="draft">Borrador</SelectItem>
-                  <SelectItem value="active">Activo</SelectItem>
-                  <SelectItem value="paused">Pausado</SelectItem>
-                  <SelectItem value="finished">Finalizado</SelectItem>
-                </SelectContent>
-              </Select>
+              {isTrafficker ? (
+                <Badge variant={STATUS_VARIANTS[order.status]} className="mt-1">
+                  {STATUS_LABELS[order.status]}
+                </Badge>
+              ) : (
+                <Select
+                  value={order.status}
+                  onValueChange={(newStatus) => {
+                    if (order.status === 'draft' && newStatus === 'active') {
+                      // When activating from draft, ask about order lines
+                      setPendingOrderStatus(newStatus);
+                      setActivateOrderConfirmOpen(true);
+                    } else {
+                      updateOrder.mutate({ id: order.id, data: { status: newStatus } });
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-[140px] mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="draft">Borrador</SelectItem>
+                    <SelectItem value="active">Activo</SelectItem>
+                    <SelectItem value="paused">Pausado</SelectItem>
+                    <SelectItem value="finished">Finalizado</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
             <div>
               <p className="text-sm font-medium text-muted-foreground">Total spots</p>
@@ -266,13 +337,30 @@ export default function OrderDetailPage() {
                     line={line}
                     orderId={id!}
                     lineProgress={deliveryProgress?.lines.find((l) => l.order_line_id === line.id)}
+                    isTrafficker={isTrafficker}
                     onToggleStatus={(line) => {
                       const newStatus = line.status === 'active' ? 'paused' : 'active';
-                      if (newStatus === 'active' && order.status !== 'active') {
-                        // Can't activate a line if the order isn't active
-                        return;
+                      if (newStatus === 'active') {
+                        if (order.status !== 'active') {
+                          toast.error('El pedido no está activo. Activa el pedido primero.', { duration: 6000 });
+                          return;
+                        }
+
+                        // Call the backend activation endpoint — it validates targets + creatives
+                        orderLinesApi.activate(line.id, true)
+                          .then(() => {
+                            queryClient.invalidateQueries({ queryKey: ['orders', id, 'order-lines'] });
+                            toast.success('Línea activada');
+                          })
+                          .catch((err: any) => {
+                            const msg = err?.response?.data?.errors?.status?.[0]
+                              ?? err?.response?.data?.message
+                              ?? 'No se puede activar esta línea. Verifica que tenga inventario y creativos asignados.';
+                            toast.error(msg, { duration: 6000 });
+                          });
+                      } else {
+                        updateOrderLine.mutate({ id: line.id, data: { status: newStatus } });
                       }
-                      updateOrderLine.mutate({ id: line.id, data: { status: newStatus } });
                     }}
                     onDelete={(lineId) => {
                       setDeletingLineId(lineId);
@@ -310,7 +398,16 @@ export default function OrderDetailPage() {
           });
         }}
         isSubmitting={createOrderLine.isPending}
-        parentOrder={{ starts_at: order.starts_at.split('T')[0], ends_at: order.ends_at.split('T')[0] }}
+        parentOrder={{
+          starts_at: order.starts_at?.split('T')[0] ?? '',
+          ends_at: order.ends_at?.split('T')[0] ?? '',
+        }}
+        adSlots={adSlots}
+        loopsPerDay={loopsPerDay}
+        maxAdSlots={maxAdSlots}
+        minAdSlots={minAdSlots}
+        minSpotsPerDay={minSpotsPerDay}
+        maxSpotsPerDay={maxSpotsPerDay}
       />
 
       {/* Delete Order Line Confirm Dialog */}
@@ -386,13 +483,14 @@ interface OrderLineRowProps {
   line: OrderLine;
   orderId: string;
   lineProgress?: { total_progress: number | null; today_progress: number | null; total_delivered: number; today_delivered: number; daily_budget: number | null };
+  isTrafficker?: boolean;
   onToggleStatus: (line: OrderLine) => void;
   onDelete: (lineId: string) => void;
   onNavigate: (lineId: string) => void;
 }
 
-function OrderLineRow({ line, lineProgress, onToggleStatus, onDelete, onNavigate }: OrderLineRowProps) {
-  const canToggle = line.status === 'active' || line.status === 'paused' || line.status === 'draft';
+function OrderLineRow({ line, lineProgress, isTrafficker, onToggleStatus, onDelete, onNavigate }: OrderLineRowProps) {
+  const canToggle = !isTrafficker && (line.status === 'active' || line.status === 'paused' || line.status === 'draft');
 
   return (
     <TableRow
@@ -492,8 +590,6 @@ function EditOrderDialog({ order, open, onOpenChange, onSubmit, isSubmitting }: 
     values: {
       name: order.name,
       advertiser_name: order.advertiser_name,
-      starts_at: order.starts_at?.split('T')[0] ?? '',
-      ends_at: order.ends_at?.split('T')[0] ?? '',
       status: order.status,
     },
   });
@@ -523,22 +619,23 @@ function EditOrderDialog({ order, open, onOpenChange, onSubmit, isSubmitting }: 
             <Input id="edit-advertiser" {...form.register('advertiser_name')} />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="edit-starts">Fecha inicio</Label>
-              <Input id="edit-starts" type="date" {...form.register('starts_at')} />
-              {form.formState.errors.starts_at && (
-                <p className="text-sm text-destructive">{form.formState.errors.starts_at.message}</p>
-              )}
+          {/* Computed dates — read-only */}
+          {order.starts_at && order.ends_at && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-muted-foreground">Fecha inicio (calculada)</Label>
+                <p className="text-sm py-2 px-3 border rounded-md bg-muted">
+                  {formatDate(order.starts_at)}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-muted-foreground">Fecha fin (calculada)</Label>
+                <p className="text-sm py-2 px-3 border rounded-md bg-muted">
+                  {formatDate(order.ends_at)}
+                </p>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-ends">Fecha fin</Label>
-              <Input id="edit-ends" type="date" {...form.register('ends_at')} />
-              {form.formState.errors.ends_at && (
-                <p className="text-sm text-destructive">{form.formState.errors.ends_at.message}</p>
-              )}
-            </div>
-          </div>
+          )}
 
           <div className="space-y-2">
             <Label>Estado</Label>
@@ -580,9 +677,15 @@ interface CreateOrderLineDialogProps {
   onSubmit: (data: OrderLineSubmitPayload) => void;
   isSubmitting: boolean;
   parentOrder: { starts_at: string; ends_at: string };
+  adSlots?: number;
+  loopsPerDay?: number;
+  maxAdSlots?: number;
+  minAdSlots?: number;
+  minSpotsPerDay?: number;
+  maxSpotsPerDay?: number;
 }
 
-function CreateOrderLineDialog({ open, onOpenChange, onSubmit, isSubmitting, parentOrder }: CreateOrderLineDialogProps) {
+function CreateOrderLineDialog({ open, onOpenChange, onSubmit, isSubmitting, parentOrder, adSlots, loopsPerDay, maxAdSlots, minAdSlots, minSpotsPerDay, maxSpotsPerDay }: CreateOrderLineDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[550px] max-h-[85vh] overflow-y-auto">
@@ -596,6 +699,12 @@ function CreateOrderLineDialog({ open, onOpenChange, onSubmit, isSubmitting, par
           }}
           isSubmitting={isSubmitting}
           parentOrder={parentOrder}
+          adSlots={adSlots}
+          loopsPerDay={loopsPerDay}
+          maxAdSlots={maxAdSlots}
+          minAdSlots={minAdSlots}
+          minSpotsPerDay={minSpotsPerDay}
+          maxSpotsPerDay={maxSpotsPerDay}
         />
       </DialogContent>
     </Dialog>

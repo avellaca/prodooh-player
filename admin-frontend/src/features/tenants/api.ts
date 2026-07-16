@@ -7,6 +7,9 @@ export const tenantsApi = {
 
   get: (id: string) => api.get<Tenant>(`/admin/tenants/${id}`).then((r) => r.data),
 
+  /** Get tenant config (accessible by tenant_admin and super_admin) */
+  getConfig: (id: string) => api.get<Tenant>(`/admin/tenants/${id}/loop-config`).then((r) => r.data as Tenant),
+
   create: (data: CreateTenantInput) =>
     api.post<Tenant>('/admin/tenants', data).then((r) => r.data),
 

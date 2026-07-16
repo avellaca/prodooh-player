@@ -11,7 +11,7 @@ export default function App() {
       <TenantProvider>
         <BrowserRouter>
           <AppRoutes />
-          <Toaster position="top-right" richColors />
+          <Toaster position="top-right" richColors visibleToasts={5} expand />
         </BrowserRouter>
       </TenantProvider>
     </QueryClientProvider>

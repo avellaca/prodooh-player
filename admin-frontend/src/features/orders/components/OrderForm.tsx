@@ -1,22 +1,13 @@
-import { useForm, Controller } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { orderSchema, type OrderFormValues } from "../schemas";
+import { orderCreateSchema, type OrderCreateFormValues } from "../schemas";
 import { FormField } from "@/components/forms/FormField";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { cn } from "@/lib/utils";
 import { Loader2 } from "lucide-react";
 
 interface OrderFormProps {
-  defaultValues?: Partial<OrderFormValues>;
-  onSubmit: (data: OrderFormValues) => void;
+  defaultValues?: Partial<OrderCreateFormValues>;
+  onSubmit: (data: OrderCreateFormValues) => void;
   isSubmitting?: boolean;
 }
 
@@ -28,16 +19,12 @@ export function OrderForm({
   const {
     register,
     handleSubmit,
-    control,
     formState: { errors },
-  } = useForm<OrderFormValues>({
-    resolver: zodResolver(orderSchema),
+  } = useForm<OrderCreateFormValues>({
+    resolver: zodResolver(orderCreateSchema),
     defaultValues: {
       name: "",
       advertiser_name: "",
-      starts_at: "",
-      ends_at: "",
-      status: "draft",
       ...defaultValues,
     },
   });
@@ -61,59 +48,6 @@ export function OrderForm({
         placeholder="Nombre del anunciante"
         disabled={isSubmitting}
       />
-
-      <FormField
-        label="Fecha de inicio"
-        name="starts_at"
-        type="date"
-        register={register}
-        errors={errors}
-        disabled={isSubmitting}
-      />
-
-      <FormField
-        label="Fecha de fin"
-        name="ends_at"
-        type="date"
-        register={register}
-        errors={errors}
-        disabled={isSubmitting}
-      />
-
-      <div className="space-y-2">
-        <Label htmlFor="status">Estado</Label>
-        <Controller
-          name="status"
-          control={control}
-          render={({ field }) => (
-            <Select
-              value={field.value}
-              onValueChange={field.onChange}
-              disabled={isSubmitting}
-            >
-              <SelectTrigger
-                id="status"
-                className={cn(
-                  errors.status && "border-red-500 focus-visible:ring-red-500"
-                )}
-              >
-                <SelectValue placeholder="Seleccionar estado" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="draft">Borrador</SelectItem>
-                <SelectItem value="active">Activo</SelectItem>
-                <SelectItem value="paused">Pausado</SelectItem>
-                <SelectItem value="finished">Finalizado</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
-        />
-        {errors.status?.message && (
-          <p className="text-sm text-red-500">
-            {errors.status.message as string}
-          </p>
-        )}
-      </div>
 
       <div className="flex justify-end">
         <Button type="submit" disabled={isSubmitting}>

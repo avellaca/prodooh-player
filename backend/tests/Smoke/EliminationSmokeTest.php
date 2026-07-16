@@ -33,9 +33,9 @@ class EliminationSmokeTest extends TestCase
         $this->getJson('/api/device/config')->assertStatus(410);
     }
 
-    public function test_loop_engine_file_does_not_exist(): void
+    public function test_loop_engine_file_exists(): void
     {
-        $this->assertFileDoesNotExist(base_path('../player/src/engine/LoopEngine.ts'));
+        $this->assertFileExists(base_path('../player/src/engine/LoopEngine.ts'));
     }
 
     public function test_config_sync_controller_eliminated(): void

@@ -54,33 +54,58 @@ export default function GroupsPage() {
     {
       accessorKey: "name",
       header: "Nombre",
+      sortingFn: (rowA, rowB) => {
+        const a = rowA.getValue<string>('name');
+        const b = rowB.getValue<string>('name');
+        return a.localeCompare(b, 'es', { numeric: true, sensitivity: 'base' });
+      },
     },
     {
       accessorKey: "screens_count",
       header: "Pantallas",
-      cell: ({ row }) => row.original.screens_count ?? 0,
+      cell: ({ row }) => row.original.screens_count ?? row.original.screens?.length ?? 0,
     },
     {
-      accessorKey: "orientation",
-      header: "Orientación",
+      id: "composition",
+      header: "Composición",
+      enableSorting: false,
       cell: ({ row }) => {
-        const value = row.original.orientation;
-        return value ? (
-          <span className="capitalize">{value}</span>
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        );
-      },
-    },
-    {
-      id: "resolution",
-      header: "Resolución",
-      cell: ({ row }) => {
-        const { resolution_width, resolution_height } = row.original;
-        return resolution_width && resolution_height ? (
-          `${resolution_width}×${resolution_height}`
-        ) : (
-          <span className="text-muted-foreground">—</span>
+        const screens = row.original.screens ?? [];
+        if (screens.length === 0) return <span className="text-muted-foreground">—</span>;
+
+        // Count by orientation
+        const orientations: Record<string, number> = {};
+        // Count by resolution (sorted desc by count)
+        const resolutions: Record<string, number> = {};
+
+        for (const s of screens) {
+          const orient = s.orientation ?? 'unknown';
+          orientations[orient] = (orientations[orient] ?? 0) + 1;
+
+          const res = `${s.resolution_width}×${s.resolution_height}`;
+          resolutions[res] = (resolutions[res] ?? 0) + 1;
+        }
+
+        const orientEntries = Object.entries(orientations).sort((a, b) => b[1] - a[1]);
+        const resEntries = Object.entries(resolutions).sort((a, b) => b[1] - a[1]);
+
+        return (
+          <div className="space-y-1">
+            <div className="flex flex-wrap gap-1">
+              {orientEntries.map(([orient, count]) => (
+                <span key={orient} className="inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700">
+                  {orient === 'portrait' ? 'Portrait' : orient === 'landscape' ? 'Landscape' : orient} ×{count}
+                </span>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {resEntries.map(([res, count]) => (
+                <span key={res} className="inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
+                  {res} ({count})
+                </span>
+              ))}
+            </div>
+          </div>
         );
       },
     },
@@ -104,7 +129,10 @@ export default function GroupsPage() {
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="text-destructive"
-                onClick={() => setDeletingGroup(group)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDeletingGroup(group);
+                }}
               >
                 <Trash2 className="mr-2 h-4 w-4" />
                 Eliminar
@@ -172,6 +200,7 @@ export default function GroupsPage() {
         columns={columns}
         data={groups ?? []}
         onRowClick={(group) => navigate(`/groups/${group.id}`)}
+        initialSorting={[{ id: 'name', desc: false }]}
       />
 
       {/* Create Dialog */}

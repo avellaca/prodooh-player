@@ -14,8 +14,13 @@ class ManifestController extends Controller
     /**
      * GET /api/device/manifest
      *
-     * Serve the manifest for the authenticated device.
-     * Supports ETag-based conditional requests (304 Not Modified).
+     * Serve the Loop Template JSON for the authenticated device.
+     * Supports ETag-based conditional requests via If-None-Match header:
+     * - If the version hasn't changed → HTTP 304 Not Modified
+     * - Otherwise → HTTP 200 with the full Loop Template JSON
+     *
+     * The response includes sync_interval_seconds and cache_flush_interval_hours
+     * from tenant configuration for the player to use.
      */
     public function show(Request $request): JsonResponse|Response
     {
@@ -25,29 +30,46 @@ class ManifestController extends Controller
         $manifest = ScreenManifest::where('screen_id', $screenId)->first();
 
         if (!$manifest) {
+            // Return an empty Loop Template structure when no manifest exists
+            $tenant = $screen ? $screen->tenant : null;
+            $syncInterval = $tenant ? (int) ($tenant->sync_interval_seconds ?? 240) : 240;
+            $cacheFlush = $tenant ? (int) ($tenant->cache_flush_interval_hours ?? 24) : 24;
+
             return response()->json([
                 'version' => null,
                 'generated_at' => null,
-                'items' => [],
+                'loop_config' => null,
+                'slots' => [],
+                'sync_interval_seconds' => $syncInterval,
+                'cache_flush_interval_hours' => $cacheFlush,
             ]);
         }
 
-        // Check If-None-Match header for conditional request
+        // Check If-None-Match header for conditional request (ETag = version hash)
         $ifNoneMatch = $request->header('If-None-Match');
         if ($ifNoneMatch && $ifNoneMatch === $manifest->version) {
             return response()->noContent(304);
         }
 
-        return response()->json([
-            'version' => $manifest->version,
-            'generated_at' => $manifest->generated_at->toIso8601String(),
-            'items' => $manifest->items,
-            'screen' => [
-                'resolution_width' => $screen->resolution_width,
-                'resolution_height' => $screen->resolution_height,
-                'venue_id' => $screen->venue_id,
-            ],
-        ])->header('ETag', $manifest->version);
+        // The Loop Template JSON is stored in the `items` column
+        // It already contains: version, generated_at, loop_config, slots,
+        // sync_interval_seconds, and cache_flush_interval_hours
+        $loopTemplate = $manifest->items;
+
+        // Ensure sync_interval_seconds and cache_flush_interval_hours are present
+        // (fallback to tenant config if not in stored template)
+        if (!isset($loopTemplate['sync_interval_seconds']) || !isset($loopTemplate['cache_flush_interval_hours'])) {
+            $tenant = $screen ? $screen->tenant : null;
+            if (!isset($loopTemplate['sync_interval_seconds'])) {
+                $loopTemplate['sync_interval_seconds'] = $tenant ? (int) ($tenant->sync_interval_seconds ?? 240) : 240;
+            }
+            if (!isset($loopTemplate['cache_flush_interval_hours'])) {
+                $loopTemplate['cache_flush_interval_hours'] = $tenant ? (int) ($tenant->cache_flush_interval_hours ?? 24) : 24;
+            }
+        }
+
+        return response()->json($loopTemplate)
+            ->header('ETag', $manifest->version);
     }
 
     /**

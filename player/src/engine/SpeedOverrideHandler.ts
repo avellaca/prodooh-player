@@ -15,7 +15,7 @@
 import type { DeviceCommand } from '../sync/HeartbeatService';
 
 /** Valid speed override factors */
-const VALID_FACTORS = [1, 2, 4] as const;
+const VALID_FACTORS = [1, 2, 3, 4] as const;
 export type SpeedFactor = (typeof VALID_FACTORS)[number];
 
 export interface SpeedOverrideState {

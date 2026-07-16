@@ -50,4 +50,24 @@ class UserFactory extends Factory
             'role' => 'tenant_admin',
         ]);
     }
+
+    /**
+     * Create a trafficker user.
+     */
+    public function trafficker(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => 'trafficker',
+        ]);
+    }
+
+    /**
+     * Create an inactive user.
+     */
+    public function inactive(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'is_active' => false,
+        ]);
+    }
 }

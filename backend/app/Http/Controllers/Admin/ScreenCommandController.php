@@ -33,7 +33,7 @@ class ScreenCommandController extends Controller
 
         // Base validation: type is required and must be one of the allowed values
         $request->validate([
-            'type' => ['required', 'string', 'in:speed_override,preview_content'],
+            'type' => ['required', 'string', 'in:speed_override,preview_content,screenshot'],
         ]);
 
         $type = $request->input('type');
@@ -41,7 +41,7 @@ class ScreenCommandController extends Controller
 
         if ($type === 'speed_override') {
             $validated = $request->validate([
-                'factor' => ['required', 'integer', 'in:1,2,4'],
+                'factor' => ['required', 'integer', 'in:1,2,3,4'],
                 'expires_at' => ['sometimes', 'nullable', 'date'],
             ]);
 
@@ -66,6 +66,8 @@ class ScreenCommandController extends Controller
             if (isset($validated['duration_seconds']) && $validated['duration_seconds']) {
                 $payload['duration_seconds'] = (int) $validated['duration_seconds'];
             }
+        } elseif ($type === 'screenshot') {
+            $payload = ['requested_at' => now()->toIso8601String()];
         }
 
         $command = DeviceCommand::create([

@@ -18,6 +18,7 @@ import type {
   CreateCreativeInput,
   UpdateCreativeInput,
   CreateTargetInput,
+  ActivateOrderLineResponse,
 } from './api';
 import type { BulkCreativeInput } from './types';
 
@@ -135,6 +136,42 @@ export function useDeleteOrderLine(orderId: string) {
     },
     onError: (error: Error & { response?: { data?: { message?: string } } }) => {
       toast.error(error.response?.data?.message ?? 'Error al eliminar línea de pedido');
+    },
+  });
+}
+
+/**
+ * Hook for activating an OrderLine with availability check.
+ *
+ * - If availability is sufficient, activates directly.
+ * - If insufficient, returns the availability info via onInsufficientAvailability callback.
+ * - When force=true (user confirmed), proceeds with activation despite insufficient capacity.
+ */
+export function useActivateOrderLine(
+  orderId: string,
+  options?: {
+    onInsufficientAvailability?: (response: ActivateOrderLineResponse) => void;
+    onSuccess?: () => void;
+  }
+) {
+  return useMutation({
+    mutationFn: ({ id, force }: { id: string; force?: boolean }) =>
+      orderLinesApi.activate(id, force),
+    onSuccess: (response) => {
+      if (response.requires_confirmation) {
+        // Insufficient availability — let the caller show the modal
+        options?.onInsufficientAvailability?.(response);
+      } else {
+        // Activation succeeded
+        queryClient.invalidateQueries({ queryKey: ['order-lines'] });
+        queryClient.invalidateQueries({ queryKey: ['orders', orderId, 'order-lines'] });
+        queryClient.invalidateQueries({ queryKey: ['orders', orderId] });
+        toast.success('Línea de pedido activada exitosamente');
+        options?.onSuccess?.();
+      }
+    },
+    onError: (error: Error & { response?: { data?: { message?: string } } }) => {
+      toast.error(error.response?.data?.message ?? 'Error al activar línea de pedido');
     },
   });
 }

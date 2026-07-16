@@ -41,6 +41,9 @@ class Screen extends Model
         'transition_type',
         'transition_duration_ms',
         'manifest_version',
+        'num_slots',
+        'ssp_slots',
+        'playlist_slots',
         'last_heartbeat',
         'last_storage_status',
     ];

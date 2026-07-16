@@ -267,7 +267,11 @@ export class ManifestEngine {
 
   /**
    * Prefetches the next item in the sequence.
-   * If the next item is a prodooh_ssp_call, triggers SSP prefetch.
+   * If the next item is a prodooh_ssp_call, triggers SSP prefetch immediately.
+   *
+   * Slot-based timing: prefetch is triggered at the START of the current slot
+   * (preceding the SSP slot), giving the full slot_duration_seconds for the SSP
+   * to respond. This replaces the old model of delaying until 3s before end.
    */
   private prefetchNext(items: ManifestItem[], currentIdx: number): void {
     if (items.length <= 1) return;
@@ -277,13 +281,9 @@ export class ManifestEngine {
     if (!nextItem) return;
 
     if (nextItem.type === 'prodooh_ssp_call' && this.sspPrefetcher) {
-      // Delay SSP prefetch to ~3s before the slot starts
-      // Current item plays for duration_seconds; prefetch 3s before it ends
-      const currentDuration = items[currentIdx]!.duration_seconds;
-      const delayMs = Math.max(0, (currentDuration - 3)) * 1000;
-      setTimeout(() => {
-        void this.sspPrefetcher!.prefetch(nextItem.duration_seconds);
-      }, delayMs);
+      // Slot-based timing: trigger prefetch immediately at the start of the preceding slot.
+      // The full slot duration is available for the SSP network request to complete.
+      void this.sspPrefetcher.prefetch(nextItem.duration_seconds);
     }
   }
 

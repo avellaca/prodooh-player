@@ -36,16 +36,12 @@ export interface DeliveryProgress {
 export interface CreateOrderInput {
   name: string;
   advertiser_name?: string | null;
-  starts_at: string;
-  ends_at: string;
-  status?: 'draft' | 'active' | 'paused' | 'finished';
+  advertiser_id?: string;
 }
 
 export interface UpdateOrderInput {
   name?: string;
   advertiser_name?: string | null;
-  starts_at?: string;
-  ends_at?: string;
   status?: 'draft' | 'active' | 'paused' | 'finished';
 }
 
@@ -58,6 +54,8 @@ export interface CreateOrderLineInput {
   delivery_pace: 'asap' | 'uniform';
   share_weight: number;
   status?: 'draft' | 'active' | 'paused' | 'finished';
+  by_slot?: boolean;
+  slots_purchased?: number | null;
 }
 
 export interface UpdateOrderLineInput {
@@ -69,6 +67,8 @@ export interface UpdateOrderLineInput {
   delivery_pace?: 'asap' | 'uniform';
   share_weight?: number;
   status?: 'draft' | 'active' | 'paused' | 'finished';
+  by_slot?: boolean;
+  slots_purchased?: number | null;
 }
 
 export interface CreateCreativeInput {
@@ -129,6 +129,22 @@ export const ordersApi = {
     api.get<{ data: DeliveryProgress }>(`/admin/orders/${orderId}/delivery-progress`).then((r) => r.data.data),
 };
 
+// ─── Availability Types ──────────────────────────────────────────────────────
+
+export interface AvailabilityInfo {
+  is_sufficient: boolean;
+  target_spots: number;
+  available_capacity: number;
+  saturation_percent: number;
+  warning_message: string | null;
+}
+
+export interface ActivateOrderLineResponse {
+  data: OrderLine;
+  availability: AvailabilityInfo;
+  requires_confirmation?: boolean;
+}
+
 export const orderLinesApi = {
   list: (orderId: string) =>
     api.get<{ data: OrderLine[] }>(`/admin/orders/${orderId}/order-lines`).then((r) => r.data.data),
@@ -144,6 +160,12 @@ export const orderLinesApi = {
 
   delete: (id: string) =>
     api.delete(`/admin/order-lines/${id}`),
+
+  activate: (id: string, force = false) =>
+    api.patch<ActivateOrderLineResponse>(`/admin/order-lines/${id}/activate`, { force }).then((r) => r.data),
+
+  availability: (id: string) =>
+    api.get<{ data: AvailabilityInfo }>(`/admin/order-lines/${id}/availability`).then((r) => r.data.data),
 };
 
 export const creativesApi = {

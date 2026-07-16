@@ -85,9 +85,11 @@ class ScreenController extends Controller
 
         $validated = $request->validate([
             'name' => ['sometimes', 'string', 'max:255'],
+            'venue_id' => ['sometimes', 'string', 'max:255'],
             'orientation' => ['sometimes', 'string', 'in:landscape,portrait'],
             'resolution_width' => ['sometimes', 'integer', 'min:1'],
             'resolution_height' => ['sometimes', 'integer', 'min:1'],
+            'num_slots' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:100'],
             'group_id' => ['sometimes', 'nullable', 'string'],
             'enabled' => ['sometimes', 'boolean'],
             'duration_seconds' => ['sometimes', 'nullable', 'integer', 'min:1'],

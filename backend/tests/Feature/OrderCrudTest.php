@@ -92,9 +92,6 @@ class OrderCrudTest extends TestCase
             'tenant_id' => $tenant->id,
             'name' => 'Campaña Verano 2025',
             'advertiser_name' => 'Nike',
-            'starts_at' => '2025-06-01',
-            'ends_at' => '2025-08-31',
-            'status' => 'draft',
         ]);
 
         $response->assertCreated()
@@ -116,14 +113,12 @@ class OrderCrudTest extends TestCase
 
         $response = $this->postJson('/api/admin/orders', [
             'name' => 'Pedido Local',
-            'starts_at' => '2025-01-01',
-            'ends_at' => '2025-01-31',
-            'status' => 'draft',
         ]);
 
         $response->assertCreated()
             ->assertJsonPath('data.tenant_id', $tenant->id)
-            ->assertJsonPath('data.name', 'Pedido Local');
+            ->assertJsonPath('data.name', 'Pedido Local')
+            ->assertJsonPath('data.status', 'draft');
     }
 
     public function test_super_admin_must_provide_tenant_id(): void
@@ -132,9 +127,6 @@ class OrderCrudTest extends TestCase
 
         $response = $this->postJson('/api/admin/orders', [
             'name' => 'No Tenant Order',
-            'starts_at' => '2025-01-01',
-            'ends_at' => '2025-01-31',
-            'status' => 'draft',
         ]);
 
         $response->assertUnprocessable()
@@ -148,13 +140,11 @@ class OrderCrudTest extends TestCase
 
         $response = $this->postJson('/api/admin/orders?tenant_id=' . $tenant->id, [
             'name' => 'Via Query Param',
-            'starts_at' => '2025-01-01',
-            'ends_at' => '2025-01-31',
-            'status' => 'draft',
         ]);
 
         $response->assertCreated()
-            ->assertJsonPath('data.tenant_id', $tenant->id);
+            ->assertJsonPath('data.tenant_id', $tenant->id)
+            ->assertJsonPath('data.status', 'draft');
     }
 
     public function test_store_validates_required_fields(): void
@@ -165,7 +155,7 @@ class OrderCrudTest extends TestCase
         $response = $this->postJson('/api/admin/orders', []);
 
         $response->assertUnprocessable()
-            ->assertJsonValidationErrors(['name', 'starts_at', 'ends_at', 'status']);
+            ->assertJsonValidationErrors(['name']);
     }
 
     public function test_store_validates_name_max_length(): void
@@ -175,45 +165,10 @@ class OrderCrudTest extends TestCase
 
         $response = $this->postJson('/api/admin/orders', [
             'name' => str_repeat('a', 256),
-            'starts_at' => '2025-01-01',
-            'ends_at' => '2025-01-31',
-            'status' => 'draft',
         ]);
 
         $response->assertUnprocessable()
             ->assertJsonValidationErrors(['name']);
-    }
-
-    public function test_store_rejects_ends_at_before_starts_at(): void
-    {
-        $tenant = Tenant::factory()->create();
-        $this->actingAsTenantAdmin($tenant);
-
-        $response = $this->postJson('/api/admin/orders', [
-            'name' => 'Invalid Dates',
-            'starts_at' => '2025-06-15',
-            'ends_at' => '2025-06-01',
-            'status' => 'draft',
-        ]);
-
-        $response->assertUnprocessable()
-            ->assertJsonValidationErrors(['ends_at']);
-    }
-
-    public function test_store_validates_status_enum(): void
-    {
-        $tenant = Tenant::factory()->create();
-        $this->actingAsTenantAdmin($tenant);
-
-        $response = $this->postJson('/api/admin/orders', [
-            'name' => 'Invalid Status',
-            'starts_at' => '2025-01-01',
-            'ends_at' => '2025-01-31',
-            'status' => 'invalid_status',
-        ]);
-
-        $response->assertUnprocessable()
-            ->assertJsonValidationErrors(['status']);
     }
 
     public function test_store_allows_nullable_advertiser_name(): void
@@ -224,9 +179,6 @@ class OrderCrudTest extends TestCase
         $response = $this->postJson('/api/admin/orders', [
             'name' => 'Sin Anunciante',
             'advertiser_name' => null,
-            'starts_at' => '2025-01-01',
-            'ends_at' => '2025-01-31',
-            'status' => 'draft',
         ]);
 
         $response->assertCreated()
@@ -337,20 +289,6 @@ class OrderCrudTest extends TestCase
         $response->assertNotFound();
     }
 
-    public function test_update_validates_ends_at_after_starts_at(): void
-    {
-        $order = Order::factory()->create();
-        $this->actingAsSuperAdmin();
-
-        $response = $this->putJson("/api/admin/orders/{$order->id}", [
-            'starts_at' => '2025-06-15',
-            'ends_at' => '2025-06-01',
-        ]);
-
-        $response->assertUnprocessable()
-            ->assertJsonValidationErrors(['ends_at']);
-    }
-
     public function test_update_validates_status_enum(): void
     {
         $order = Order::factory()->create();
@@ -411,5 +349,107 @@ class OrderCrudTest extends TestCase
         $response = $this->deleteJson('/api/admin/orders/nonexistent-id');
 
         $response->assertNotFound();
+    }
+
+    // --- DYNAMIC DATES (Task 6.5: Requirements 5.1, 5.2, 5.3, 5.4, 5.5) ---
+
+    public function test_store_ignores_starts_at_ends_at_and_status_fields(): void
+    {
+        $tenant = Tenant::factory()->create();
+        $this->actingAsTenantAdmin($tenant);
+
+        // Even if a client sends starts_at, ends_at, and status, they are ignored
+        $response = $this->postJson('/api/admin/orders', [
+            'name' => 'Ignored Dates Order',
+            'advertiser_name' => 'Acme Corp',
+            'starts_at' => '2025-01-01',
+            'ends_at' => '2025-12-31',
+            'status' => 'active',
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('data.name', 'Ignored Dates Order')
+            ->assertJsonPath('data.status', 'draft')       // always "draft"
+            ->assertJsonPath('data.starts_at', null)       // computed from order_lines (none yet)
+            ->assertJsonPath('data.ends_at', null);        // computed from order_lines (none yet)
+    }
+
+    public function test_store_auto_assigns_draft_status(): void
+    {
+        $tenant = Tenant::factory()->create();
+        $this->actingAsTenantAdmin($tenant);
+
+        $response = $this->postJson('/api/admin/orders', [
+            'name' => 'Auto Draft Order',
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('data.status', 'draft');
+    }
+
+    public function test_show_returns_computed_dates_from_order_lines(): void
+    {
+        $tenant = Tenant::factory()->create();
+        $order = Order::factory()->create(['tenant_id' => $tenant->id]);
+        $this->actingAsTenantAdmin($tenant);
+
+        // Initially no lines → null dates
+        $response = $this->getJson("/api/admin/orders/{$order->id}");
+        $response->assertOk()
+            ->assertJsonPath('data.starts_at', null)
+            ->assertJsonPath('data.ends_at', null);
+
+        // Add order lines with different date ranges
+        \App\Models\OrderLine::create([
+            'order_id' => $order->id,
+            'name' => 'Line A',
+            'priority_tier' => 'estandar',
+            'starts_at' => '2025-03-01',
+            'ends_at' => '2025-03-15',
+            'status' => 'draft',
+        ]);
+
+        \App\Models\OrderLine::create([
+            'order_id' => $order->id,
+            'name' => 'Line B',
+            'priority_tier' => 'estandar',
+            'starts_at' => '2025-02-15',
+            'ends_at' => '2025-04-30',
+            'status' => 'draft',
+        ]);
+
+        // Now dates should be computed: MIN starts_at = 2025-02-15, MAX ends_at = 2025-04-30
+        $response = $this->getJson("/api/admin/orders/{$order->id}");
+        $response->assertOk();
+
+        $data = $response->json('data');
+        $this->assertStringStartsWith('2025-02-15', $data['starts_at']);
+        $this->assertStringStartsWith('2025-04-30', $data['ends_at']);
+    }
+
+    public function test_show_includes_order_lines_in_response(): void
+    {
+        $tenant = Tenant::factory()->create();
+        $order = Order::factory()->create(['tenant_id' => $tenant->id]);
+        $this->actingAsTenantAdmin($tenant);
+
+        \App\Models\OrderLine::create([
+            'order_id' => $order->id,
+            'name' => 'Test Line',
+            'priority_tier' => 'estandar',
+            'starts_at' => '2025-05-01',
+            'ends_at' => '2025-05-31',
+            'status' => 'draft',
+        ]);
+
+        $response = $this->getJson("/api/admin/orders/{$order->id}");
+        $response->assertOk()
+            ->assertJsonPath('data.order_lines_count', 1)
+            ->assertJsonStructure([
+                'data' => [
+                    'id', 'name', 'status', 'starts_at', 'ends_at',
+                    'order_lines_count', 'order_lines',
+                ],
+            ]);
     }
 }

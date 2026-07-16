@@ -4,9 +4,11 @@ export interface Order {
   id: string;
   tenant_id: string;
   name: string;
+  advertiser_id: string | null;
   advertiser_name: string | null;
-  starts_at: string;
-  ends_at: string;
+  advertiser?: { id: string; name: string } | null;
+  starts_at: string | null;
+  ends_at: string | null;
   status: 'draft' | 'active' | 'paused' | 'finished';
   created_at: string;
   updated_at: string;
@@ -26,6 +28,8 @@ export interface OrderLine {
   delivery_pace: 'asap' | 'uniform';
   share_weight: number;
   status: 'draft' | 'active' | 'paused' | 'finished';
+  by_slot: boolean;
+  slots_purchased: number | null;
   created_at: string;
   updated_at: string;
   creatives_count?: number;

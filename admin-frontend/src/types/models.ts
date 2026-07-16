@@ -3,6 +3,11 @@ export interface Tenant {
   name: string;
   default_duration_seconds: number | null;
   default_timezone: string | null;
+  num_slots: number;
+  ssp_slots: number;
+  playlist_slots: number;
+  sync_interval_seconds: number;
+  cache_flush_interval_hours: number;
   created_at: string;
   updated_at: string;
   screens_count?: number;
@@ -19,6 +24,7 @@ export interface Screen {
   orientation: 'landscape' | 'portrait';
   resolution_width: number;
   resolution_height: number;
+  num_slots: number | null;
   schedule: ScheduleSlot[] | null;
   last_heartbeat: string | null;
   created_at: string;
@@ -32,6 +38,7 @@ export interface ScreenGroup {
   id: string;
   tenant_id: string;
   name: string;
+  num_slots: number | null;
   duration_seconds: number | null;
   schedule: ScheduleSlot[] | null;
   created_at: string;

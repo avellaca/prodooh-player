@@ -39,8 +39,6 @@ class ManifestRecalculationObserverTest extends TestCase
         $this->order = Order::factory()->create([
             'tenant_id' => $this->tenant->id,
             'status' => 'active',
-            'starts_at' => now()->subDays(5),
-            'ends_at' => now()->addDays(30),
         ]);
     }
 

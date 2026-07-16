@@ -13,6 +13,7 @@
 import { bootPlayer } from './boot';
 import { FullscreenRenderer } from './display/FullscreenRenderer';
 import type { ManifestItem } from './sync/ManifestSyncManager';
+import type { LoopSlot, SlotCandidate } from './engine/LoopEngine';
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -113,36 +114,73 @@ async function main(): Promise<void> {
     resetRootForPlayer(root);
     renderer = new FullscreenRenderer(root, { type: 'cut', durationMs: 0 });
 
-    // Start the ManifestEngine with renderer wired
-    if (result.manifestEngine && result.manifestSyncManager) {
+    // Start the engine with renderer wired
+    if (result.manifestSyncManager) {
       const syncMgr = result.manifestSyncManager;
 
-      // Wire onItemStart to display content via the renderer
-      result.manifestEngine.onItemStartCallback = (item) => {
+      /**
+       * Render a content item via the FullscreenRenderer.
+       * Shared logic used by both ManifestEngine and LoopEngine callbacks.
+       */
+      const renderContent = (assetUrl: string, id: string, duration: number, metadata: Record<string, unknown>) => {
         if (!renderer) return;
-        if (!item.asset_url) return; // SSP calls without prefetched content
+        if (!assetUrl) return;
 
-        const localUrl = syncMgr.getLocalUrl(item.asset_url);
-
-        // Determine content type: from sync manager (downloaded assets) or URL extension (SSP)
-        const isVideo = syncMgr.isVideo(item.asset_url) ||
-          /\.(mp4|webm|ogg|mov|mpeg|mpg)(\?.*)?$/i.test(item.asset_url);
+        const localUrl = syncMgr.getLocalUrl(assetUrl);
+        const isVideo = syncMgr.isVideo(assetUrl) ||
+          /\.(mp4|webm|ogg|mov|mpeg|mpg)(\?.*)?$/i.test(assetUrl);
 
         renderer.transitionTo({
-          id: item.creative_id ?? item.playlist_item_id ?? `pos-${item.position}`,
+          id,
           type: isVideo ? 'video' : 'image',
-          source: item.type === 'playlist_item' ? 'playlist' : 'prodooh',
+          source: metadata.source as 'playlist' | 'prodooh' ?? 'prodooh',
           mediaUrl: localUrl,
-          duration: item.duration_seconds,
-          metadata: {
-            order_line_id: item.order_line_id,
-            position: item.position,
-          },
+          duration: duration,
+          metadata,
         });
       };
 
-      console.log('[main] Starting ManifestEngine...');
-      void result.manifestEngine.run();
+      // Prefer LoopEngine when a Loop Template is available
+      if (result.loopEngine) {
+        console.log('[main] Starting LoopEngine (Loop Template mode)...');
+        const loopEngine = result.loopEngine;
+
+        // Wire rendering via LoopEngine.onSlotStartCallback setter
+        loopEngine.onSlotStartCallback = (slot: LoopSlot, candidate: SlotCandidate, _iteration: number) => {
+          const slotDuration = syncMgr.getTemplate()?.loop_config.slot_duration_seconds ?? 10;
+          const source = slot.type === 'playlist' ? 'playlist' : 'prodooh';
+          const id = candidate.creative_id ?? candidate.playlist_item_id ?? `slot-${slot.position}`;
+
+          renderContent(candidate.asset_url, id, slotDuration, {
+            source,
+            order_line_id: candidate.order_line_id,
+            position: slot.position,
+            slot_type: slot.type,
+          });
+        };
+
+        void loopEngine.run();
+      } else if (result.manifestEngine) {
+        // Fallback: use legacy ManifestEngine if no Loop Template available
+        console.log('[main] Starting ManifestEngine (legacy mode)...');
+
+        // Wire onItemStart to display content via the renderer
+        result.manifestEngine.onItemStartCallback = (item) => {
+          if (!item.asset_url) return;
+          const source = item.type === 'playlist_item' ? 'playlist' : 'prodooh';
+          const id = item.creative_id ?? item.playlist_item_id ?? `pos-${item.position}`;
+
+          renderContent(item.asset_url, id, item.duration_seconds, {
+            source,
+            order_line_id: item.order_line_id,
+            position: item.position,
+          });
+        };
+
+        void result.manifestEngine.run();
+      } else {
+        showMessage(root, '⏳ Esperando manifiesto', 'El player se activará cuando reciba el manifiesto del backend');
+      }
     } else {
       showMessage(root, '⏳ Esperando manifiesto', 'El player se activará cuando reciba el manifiesto del backend');
     }

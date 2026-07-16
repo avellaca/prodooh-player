@@ -1,10 +1,12 @@
 <?php
 
 use App\Http\Controllers\Admin\AdminAuthController;
+use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\BulkCreativeController;
 use App\Http\Controllers\Admin\ContentController;
 use App\Http\Controllers\Admin\ContentPreviewController;
 use App\Http\Controllers\Admin\CreativeController;
+use App\Http\Controllers\Admin\LoopConfigController;
 use App\Http\Controllers\Admin\OrderController;
 use App\Http\Controllers\Admin\OrderLineController;
 use App\Http\Controllers\Admin\OrderLineTargetController;
@@ -16,6 +18,8 @@ use App\Http\Controllers\Admin\ScreenController;
 use App\Http\Controllers\Admin\ScreenGroupController;
 use App\Http\Controllers\Admin\ScreenshotViewController;
 use App\Http\Controllers\Admin\TenantController;
+use App\Http\Controllers\Admin\UserController;
+use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Device\DeviceAuthController;
 use App\Http\Controllers\Device\HeartbeatController;
 use App\Http\Controllers\Device\ImpressionsController;
@@ -96,6 +100,9 @@ Route::prefix('admin')->group(function () {
     // Public content file serving (used by <img> tags without Bearer token)
     Route::get('/content/{id}/preview/file', [ContentController::class, 'serveFile'])->name('admin.content.preview.file');
 
+    // Public screenshot file serving (used by <img> tags without Bearer token)
+    Route::get('/screenshots/{id}/file', [ScreenshotViewController::class, 'file'])->name('admin.screenshots.file');
+
     // Protected admin routes (Sanctum auth + tenant scope)
     Route::middleware(['auth:sanctum', TenantScopeMiddleware::class])->group(function () {
         Route::post('/logout', [AdminAuthController::class, 'logout'])->name('admin.logout');
@@ -103,6 +110,9 @@ Route::prefix('admin')->group(function () {
         Route::get('/user', function () {
             return response()->json(request()->user());
         })->name('admin.user');
+
+        // Voice assistant — extract clean data from transcription (all authenticated users)
+        Route::post('/voice/extract', [\App\Http\Controllers\Admin\VoiceExtractController::class, 'extract'])->name('admin.voice.extract');
 
         // Tenant management — super-admin only
         Route::middleware('role:super_admin')->group(function () {
@@ -113,27 +123,30 @@ Route::prefix('admin')->group(function () {
             Route::delete('/tenants/{id}', [TenantController::class, 'destroy'])->name('admin.tenants.destroy');
         });
 
-        // Routes accessible by both super-admin and tenant-admin
-        Route::middleware('role:super_admin,tenant_admin')->group(function () {
-            // Order management
+        // --- Orders, Order Lines, Creatives: accessible by trafficker + tenant_admin + super_admin ---
+        Route::middleware('authorize:orders')->group(function () {
+            Route::get('/advertisers', [\App\Http\Controllers\Admin\AdvertiserController::class, 'index'])->name('admin.advertisers.index');
+            Route::post('/advertisers', [\App\Http\Controllers\Admin\AdvertiserController::class, 'store'])->name('admin.advertisers.store');
+
             Route::get('/orders', [OrderController::class, 'index'])->name('admin.orders.index');
             Route::post('/orders', [OrderController::class, 'store'])->name('admin.orders.store');
             Route::get('/orders/{id}', [OrderController::class, 'show'])->name('admin.orders.show');
             Route::put('/orders/{id}', [OrderController::class, 'update'])->name('admin.orders.update');
             Route::delete('/orders/{id}', [OrderController::class, 'destroy'])->name('admin.orders.destroy');
 
-            // Order Lines (nested under orders)
+            // Delivery progress (read-only, related to orders)
+            Route::get('/orders/{orderId}/delivery-progress', [\App\Http\Controllers\Admin\DeliveryProgressController::class, 'show'])->name('admin.orders.delivery-progress');
+        });
+
+        Route::middleware('authorize:order_lines')->group(function () {
             Route::get('/orders/{orderId}/order-lines', [OrderLineController::class, 'index'])->name('admin.order-lines.index');
             Route::post('/orders/{orderId}/order-lines', [OrderLineController::class, 'store'])->name('admin.order-lines.store');
             Route::get('/order-lines/{id}', [OrderLineController::class, 'show'])->name('admin.order-lines.show');
             Route::put('/order-lines/{id}', [OrderLineController::class, 'update'])->name('admin.order-lines.update');
             Route::delete('/order-lines/{id}', [OrderLineController::class, 'destroy'])->name('admin.order-lines.destroy');
 
-            // Creatives by target (new target-based endpoints)
-            Route::get('/order-line-targets/{targetId}/creatives', [CreativeController::class, 'index'])->name('admin.creatives.index');
-            Route::post('/order-line-targets/{targetId}/creatives', [CreativeController::class, 'store'])->name('admin.creatives.store');
-            Route::put('/creatives/{id}', [CreativeController::class, 'update'])->name('admin.creatives.update');
-            Route::delete('/creatives/{id}', [CreativeController::class, 'destroy'])->name('admin.creatives.destroy');
+            // Order line availability check
+            Route::get('/order-lines/{id}/availability', [OrderLineController::class, 'availability'])->name('admin.order-lines.availability');
 
             // Order line targets (assign/unassign screens/groups)
             Route::post('/order-lines/{orderLineId}/targets', [OrderLineTargetController::class, 'store'])->name('admin.order-line-targets.store');
@@ -142,11 +155,35 @@ Route::prefix('admin')->group(function () {
             // Resolutions (screens grouped by resolution for an order line)
             Route::get('/order-lines/{orderLineId}/resolutions', [ResolutionController::class, 'index'])->name('admin.resolutions.index');
 
-            // Delivery progress
-            Route::get('/orders/{orderId}/delivery-progress', [\App\Http\Controllers\Admin\DeliveryProgressController::class, 'show'])->name('admin.orders.delivery-progress');
-
             // Bulk creative assignment by resolution
             Route::post('/order-lines/{orderLineId}/creatives/bulk-by-resolution', [BulkCreativeController::class, 'bulkByResolution'])->name('admin.creatives.bulkByResolution');
+        });
+
+        Route::middleware('authorize:creatives')->group(function () {
+            Route::get('/order-line-targets/{targetId}/creatives', [CreativeController::class, 'index'])->name('admin.creatives.index');
+            Route::post('/order-line-targets/{targetId}/creatives', [CreativeController::class, 'store'])->name('admin.creatives.store');
+            Route::put('/creatives/{id}', [CreativeController::class, 'update'])->name('admin.creatives.update');
+            Route::delete('/creatives/{id}', [CreativeController::class, 'destroy'])->name('admin.creatives.destroy');
+        });
+
+        // --- Activation: tenant_admin + super_admin only (trafficker denied) ---
+        Route::middleware('authorize:activation')->group(function () {
+            Route::patch('/order-lines/{id}/activate', [OrderLineController::class, 'activate'])->name('admin.order-lines.activate');
+            Route::patch('/orders/{id}/activate', [OrderController::class, 'activate'])->name('admin.orders.activate');
+        });
+
+        // --- Audit Logs: accessible by all authenticated admin users ---
+        Route::get('/{auditableType}/{id}/audit-logs', [AuditLogController::class, 'index'])
+            ->where('auditableType', 'orders|order-lines|creatives')
+            ->name('admin.audit-logs.index');
+
+        // --- Configuration: tenant_admin + super_admin only (trafficker denied) ---
+        Route::middleware('authorize:config')->group(function () {
+            // Loop config and network settings
+            Route::get('/tenants/{id}/loop-config', [LoopConfigController::class, 'show'])->name('admin.tenants.loop-config.show');
+            Route::put('/tenants/{id}/loop-config', [LoopConfigController::class, 'updateLoopConfig'])->name('admin.tenants.loop-config.update');
+            Route::put('/tenants/{id}/network-settings', [LoopConfigController::class, 'updateNetworkSettings'])->name('admin.tenants.network-settings.update');
+            Route::post('/tenants/{id}/loop-config/propagate', [LoopConfigController::class, 'propagate'])->name('admin.tenants.loop-config.propagate');
 
             // Screen commands (Modo Testigo)
             Route::post('/screens/{id}/commands', [ScreenCommandController::class, 'store'])->name('admin.screens.commands.store');
@@ -191,6 +228,7 @@ Route::prefix('admin')->group(function () {
 
             // Screenshot viewing
             Route::get('/screens/{id}/screenshots', [ScreenshotViewController::class, 'index'])->name('admin.screens.screenshots');
+            Route::delete('/screenshots/{id}', [ScreenshotViewController::class, 'destroy'])->name('admin.screenshots.destroy');
 
             // Screen manifest
             Route::get('/screens/{id}/manifest', [ScreenController::class, 'manifest'])->name('admin.screens.manifest');
@@ -198,5 +236,26 @@ Route::prefix('admin')->group(function () {
             // Screen active order lines
             Route::get('/screens/{id}/active-order-lines', [ScreenController::class, 'activeOrderLines'])->name('admin.screens.activeOrderLines');
         });
+
+        // --- User management: tenant_admin + super_admin only (trafficker denied) ---
+        Route::middleware('authorize:users')->group(function () {
+            Route::post('/users/invite', [UserController::class, 'invite'])->name('admin.users.invite');
+        });
     });
+});
+
+/*
+|--------------------------------------------------------------------------
+| Public Auth API Routes
+|--------------------------------------------------------------------------
+|
+| Public authentication routes for registration and password reset.
+| These do not require authentication.
+|
+*/
+
+Route::prefix('auth')->group(function () {
+    Route::post('/register', [AuthController::class, 'register'])->name('auth.register');
+    Route::post('/forgot-password', [AuthController::class, 'forgotPassword'])->name('auth.forgot-password');
+    Route::post('/reset-password', [AuthController::class, 'resetPassword'])->name('auth.reset-password');
 });

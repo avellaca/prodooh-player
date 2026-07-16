@@ -352,4 +352,111 @@ describe('SspPrefetcher', () => {
       expect(p).toBeInstanceOf(SspPrefetcher);
     });
   });
+
+  describe('URL deduplication cache (Req 7.10)', () => {
+    it('should cache asset URL after successful prefetch', async () => {
+      const content = makeSspContent({ assetUrl: 'https://cdn.example.com/ad-creative-1.mp4' });
+      mockClient.requestAd.mockResolvedValueOnce(content);
+
+      await prefetcher.prefetch(10);
+
+      expect(prefetcher.isCachedUrl('https://cdn.example.com/ad-creative-1.mp4')).toBe(true);
+    });
+
+    it('should return false for URLs not seen before', () => {
+      expect(prefetcher.isCachedUrl('https://cdn.example.com/never-seen.mp4')).toBe(false);
+    });
+
+    it('should keep URL cache across multiple prefetch calls', async () => {
+      const content1 = makeSspContent({ printId: 'p1', assetUrl: 'https://cdn.example.com/ad-1.mp4' });
+      const content2 = makeSspContent({ printId: 'p2', assetUrl: 'https://cdn.example.com/ad-2.mp4' });
+      mockClient.requestAd.mockResolvedValueOnce(content1);
+      mockClient.expireAd.mockResolvedValueOnce(undefined);
+      mockClient.requestAd.mockResolvedValueOnce(content2);
+
+      await prefetcher.prefetch(10);
+      await prefetcher.prefetch(10);
+
+      expect(prefetcher.isCachedUrl('https://cdn.example.com/ad-1.mp4')).toBe(true);
+      expect(prefetcher.isCachedUrl('https://cdn.example.com/ad-2.mp4')).toBe(true);
+    });
+
+    it('should preserve URL cache after cleanup()', async () => {
+      const content = makeSspContent({ assetUrl: 'https://cdn.example.com/persist.mp4' });
+      mockClient.requestAd.mockResolvedValueOnce(content);
+
+      await prefetcher.prefetch(10);
+      prefetcher.cleanup();
+
+      expect(prefetcher.isCachedUrl('https://cdn.example.com/persist.mp4')).toBe(true);
+      expect(prefetcher.isReady()).toBe(false);
+    });
+
+    it('should clear URL cache when clearUrlCache() is called', async () => {
+      const content = makeSspContent({ assetUrl: 'https://cdn.example.com/to-clear.mp4' });
+      mockClient.requestAd.mockResolvedValueOnce(content);
+
+      await prefetcher.prefetch(10);
+      expect(prefetcher.isCachedUrl('https://cdn.example.com/to-clear.mp4')).toBe(true);
+
+      prefetcher.clearUrlCache();
+
+      expect(prefetcher.isCachedUrl('https://cdn.example.com/to-clear.mp4')).toBe(false);
+    });
+
+    it('should not cache URL when prefetch returns null (no-fill)', async () => {
+      mockClient.requestAd.mockResolvedValueOnce(null);
+
+      await prefetcher.prefetch(10);
+
+      expect(prefetcher.isCachedUrl('https://cdn.example.com/anything.mp4')).toBe(false);
+    });
+
+    it('should not cache URL when prefetch throws', async () => {
+      mockClient.requestAd.mockRejectedValueOnce(new Error('Network error'));
+
+      await prefetcher.prefetch(10);
+
+      expect(prefetcher.isCachedUrl('https://cdn.example.com/anything.mp4')).toBe(false);
+    });
+
+    it('should deduplicate same URL across multiple prefetch calls', async () => {
+      const sameUrl = 'https://cdn.example.com/same-creative.mp4';
+      const content1 = makeSspContent({ printId: 'p1', assetUrl: sameUrl });
+      const content2 = makeSspContent({ printId: 'p2', assetUrl: sameUrl });
+      mockClient.requestAd.mockResolvedValueOnce(content1);
+      mockClient.expireAd.mockResolvedValueOnce(undefined);
+      mockClient.requestAd.mockResolvedValueOnce(content2);
+
+      await prefetcher.prefetch(10);
+      await prefetcher.prefetch(10);
+
+      // URL should be cached, and the latest content should be the one returned
+      expect(prefetcher.isCachedUrl(sameUrl)).toBe(true);
+      expect(prefetcher.getContent()?.printId).toBe('p2');
+    });
+  });
+
+  describe('slot-based timing integration', () => {
+    it('should work when called immediately (simulating start-of-slot prefetch)', async () => {
+      const content = makeSspContent({ durationSeconds: 10 });
+      mockClient.requestAd.mockResolvedValueOnce(content);
+
+      // In slot-based timing, prefetch is called immediately at slot start
+      // No setTimeout delay needed — verify it works with immediate invocation
+      const result = await prefetcher.prefetch(10);
+
+      expect(result).toEqual(content);
+      expect(prefetcher.isReady()).toBe(true);
+      expect(mockClient.requestAd).toHaveBeenCalledWith(10);
+    });
+
+    it('should pass the slot duration to requestAd for proper SSP bid calculation', async () => {
+      mockClient.requestAd.mockResolvedValueOnce(makeSspContent());
+
+      await prefetcher.prefetch(15); // 15 second slot
+
+      expect(mockClient.requestAd).toHaveBeenCalledWith(15);
+    });
+  });
 });

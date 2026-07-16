@@ -10,6 +10,8 @@ use App\Observers\OrderObserver;
 use App\Observers\OrderLineObserver;
 use App\Observers\CreativeObserver;
 use App\Observers\OrderLineTargetObserver;
+use App\Services\UserInvitationService;
+use App\Services\UserInvitationServiceInterface;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -19,7 +21,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->bind(UserInvitationServiceInterface::class, UserInvitationService::class);
     }
 
     /**

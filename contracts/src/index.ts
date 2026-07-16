@@ -8,3 +8,5 @@
 export * from './sources';
 export * from './device-api';
 export * from './admin-api';
+export * from './loop-template';
+export * from './auth';

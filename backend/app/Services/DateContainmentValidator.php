@@ -9,17 +9,13 @@ use Illuminate\Validation\ValidationException;
 class DateContainmentValidator
 {
     /**
-     * Validate that an OrderLine's dates are within its parent Order's range.
+     * @deprecated Order dates are now computed from order lines (MIN/MAX of starts_at/ends_at).
+     * Validation of order line dates against the parent order is no longer applicable.
      */
     public function validateOrderLineDates(OrderLine $orderLine): void
     {
-        $order = $orderLine->order ?? Order::withoutGlobalScopes()->findOrFail($orderLine->order_id);
-
-        if ($orderLine->starts_at->lt($order->starts_at) || $orderLine->ends_at->gt($order->ends_at)) {
-            throw ValidationException::withMessages([
-                'starts_at' => "Order line dates must be within the parent order range ({$order->starts_at->toDateString()} to {$order->ends_at->toDateString()}).",
-            ]);
-        }
+        // No-op: Order dates are now dynamically derived from order_lines.
+        // Order lines define the order range, not the other way around.
     }
 
     /**
@@ -32,6 +28,14 @@ class DateContainmentValidator
         }
 
         $order = $orderLine->order ?? Order::withoutGlobalScopes()->findOrFail($orderLine->order_id);
+
+        // Order dates are now computed from order_lines (MIN/MAX). During creation of
+        // the first order line, the order may not yet have computed dates. Skip validation
+        // in that case — dates will be validated on subsequent updates.
+        if ($order->starts_at === null || $order->ends_at === null) {
+            return;
+        }
+
         $startsAt = $order->starts_at->toDateString();
         $endsAt = $order->ends_at->toDateString();
 
@@ -47,21 +51,12 @@ class DateContainmentValidator
     }
 
     /**
-     * Validate that an Order's date range change doesn't orphan children.
+     * @deprecated Order dates are now computed from order lines (MIN/MAX).
+     * This method is kept for backward compatibility but is a no-op.
      */
     public function validateOrderDateShrink(Order $order): void
     {
-        $orphanedLines = $order->orderLines()
-            ->where(function ($q) use ($order) {
-                $q->where('starts_at', '<', $order->starts_at)
-                  ->orWhere('ends_at', '>', $order->ends_at);
-            })
-            ->exists();
-
-        if ($orphanedLines) {
-            throw ValidationException::withMessages([
-                'starts_at' => 'Cannot shrink order date range: some order lines have dates outside the new range.',
-            ]);
-        }
+        // No-op: Order dates are now dynamically computed from order_lines.
+        // There's no stored date range to shrink.
     }
 }

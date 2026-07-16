@@ -20,7 +20,7 @@ export function useTenants() {
 export function useTenant(id: string | undefined) {
   return useQuery({
     queryKey: ['tenants', id],
-    queryFn: () => tenantsApi.get(id!),
+    queryFn: () => tenantsApi.getConfig(id!),
     enabled: !!id,
   });
 }
