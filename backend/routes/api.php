@@ -121,6 +121,12 @@ Route::prefix('admin')->group(function () {
             Route::get('/tenants/{id}', [TenantController::class, 'show'])->name('admin.tenants.show');
             Route::put('/tenants/{id}', [TenantController::class, 'update'])->name('admin.tenants.update');
             Route::delete('/tenants/{id}', [TenantController::class, 'destroy'])->name('admin.tenants.destroy');
+
+            // SSP Definitions (global catalog — super admin only)
+            Route::get('/ssp-definitions', [\App\Http\Controllers\Admin\SspDefinitionController::class, 'index'])->name('admin.ssp-definitions.index');
+            Route::post('/ssp-definitions', [\App\Http\Controllers\Admin\SspDefinitionController::class, 'store'])->name('admin.ssp-definitions.store');
+            Route::put('/ssp-definitions/{id}', [\App\Http\Controllers\Admin\SspDefinitionController::class, 'update'])->name('admin.ssp-definitions.update');
+            Route::delete('/ssp-definitions/{id}', [\App\Http\Controllers\Admin\SspDefinitionController::class, 'destroy'])->name('admin.ssp-definitions.destroy');
         });
 
         // --- Orders, Order Lines, Creatives: accessible by trafficker + tenant_admin + super_admin ---
@@ -184,6 +190,12 @@ Route::prefix('admin')->group(function () {
             Route::put('/tenants/{id}/loop-config', [LoopConfigController::class, 'updateLoopConfig'])->name('admin.tenants.loop-config.update');
             Route::put('/tenants/{id}/network-settings', [LoopConfigController::class, 'updateNetworkSettings'])->name('admin.tenants.network-settings.update');
             Route::post('/tenants/{id}/loop-config/propagate', [LoopConfigController::class, 'propagate'])->name('admin.tenants.loop-config.propagate');
+            Route::get('/tenants/{id}/loop-config/overrides', [LoopConfigController::class, 'overrides'])->name('admin.tenants.loop-config.overrides');
+
+            // SSP Connections (tenant admin configures credentials)
+            Route::get('/ssp-connections', [\App\Http\Controllers\Admin\SspConnectionController::class, 'index'])->name('admin.ssp-connections.index');
+            Route::post('/ssp-connections', [\App\Http\Controllers\Admin\SspConnectionController::class, 'store'])->name('admin.ssp-connections.store');
+            Route::delete('/ssp-connections/{id}', [\App\Http\Controllers\Admin\SspConnectionController::class, 'destroy'])->name('admin.ssp-connections.destroy');
 
             // Screen commands (Modo Testigo)
             Route::post('/screens/{id}/commands', [ScreenCommandController::class, 'store'])->name('admin.screens.commands.store');
@@ -220,9 +232,6 @@ Route::prefix('admin')->group(function () {
             Route::put('/content/{id}/rotate', [ContentController::class, 'rotate'])->name('admin.content.rotate');
             Route::get('/content/{id}/preview', [ContentPreviewController::class, 'show'])->name('admin.content.preview');
 
-            // Playlist item preview (supports URL items)
-            Route::get('/playlist-items/{id}/preview', [ContentPreviewController::class, 'showPlaylistItem'])->name('admin.playlist-items.preview');
-
             // Analytics
             Route::get('/analytics/playback', [PlaybackAnalyticsController::class, 'index'])->name('admin.analytics.playback');
 
@@ -239,7 +248,13 @@ Route::prefix('admin')->group(function () {
 
         // --- User management: tenant_admin + super_admin only (trafficker denied) ---
         Route::middleware('authorize:users')->group(function () {
+            Route::get('/users', [UserController::class, 'index'])->name('admin.users.index');
             Route::post('/users/invite', [UserController::class, 'invite'])->name('admin.users.invite');
+            Route::put('/users/{id}', [UserController::class, 'update'])->name('admin.users.update');
+            Route::patch('/users/{id}/toggle-active', [UserController::class, 'toggleActive'])->name('admin.users.toggle-active');
+            Route::delete('/users/{id}', [UserController::class, 'destroy'])->name('admin.users.destroy');
+            Route::post('/users/{id}/resend-invite', [UserController::class, 'resendInvite'])->name('admin.users.resend-invite');
+            Route::post('/users/{id}/send-reset', [UserController::class, 'sendReset'])->name('admin.users.send-reset');
         });
     });
 });

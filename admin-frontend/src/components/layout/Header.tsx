@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { useTenantContext } from '@/contexts/TenantContext';
 import { tenantsApi } from '@/features/tenants/api';
+import { settingsApi } from '@/features/settings/api';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -16,22 +17,25 @@ import { cn } from '@/lib/utils';
 
 const superAdminLinks = [
   { to: '/networks', label: 'Networks' },
+  { to: '/ssp-admin', label: 'SSP' },
   { to: '/orders', label: 'Pedidos' },
   { to: '/screens', label: 'Pantallas' },
   { to: '/groups', label: 'Grupos' },
   { to: '/playlists', label: 'Playlists' },
   { to: '/biblioteca', label: 'Biblioteca' },
   { to: '/analytics', label: 'Analytics' },
+  { to: '/users', label: 'Usuarios' },
   { to: '/settings', label: 'Configuración' },
 ];
 
-const tenantAdminLinks = [
+const tenantAdminBaseLinks = [
   { to: '/orders', label: 'Pedidos' },
   { to: '/screens', label: 'Pantallas' },
   { to: '/groups', label: 'Grupos' },
   { to: '/playlists', label: 'Playlists' },
   { to: '/biblioteca', label: 'Biblioteca' },
   { to: '/analytics', label: 'Analytics' },
+  { to: '/users', label: 'Usuarios' },
   { to: '/settings', label: 'Configuración' },
 ];
 
@@ -46,12 +50,27 @@ export default function Header() {
 
   const isSuperAdmin = user?.role === 'super_admin';
   const isTrafficker = user?.role === 'trafficker';
+  const isTenantAdmin = user?.role === 'tenant_admin';
 
   const { data: tenants } = useQuery({
     queryKey: ['tenants'],
     queryFn: tenantsApi.list,
     enabled: isSuperAdmin,
   });
+
+  // Fetch loop-config for tenant admins to determine if SSP link should show
+  const tenantId = isTenantAdmin ? user?.tenant_id : null;
+  const { data: loopConfig } = useQuery({
+    queryKey: ['loop-config', tenantId],
+    queryFn: () => settingsApi.getLoopConfig(tenantId!),
+    enabled: !!tenantId,
+  });
+
+  const hasSspSlots = (loopConfig?.ssp_slots ?? 0) > 0;
+
+  const tenantAdminLinks = hasSspSlots
+    ? [...tenantAdminBaseLinks, { to: '/ssp', label: 'SSP' }]
+    : tenantAdminBaseLinks;
 
   const navLinks = isSuperAdmin
     ? superAdminLinks

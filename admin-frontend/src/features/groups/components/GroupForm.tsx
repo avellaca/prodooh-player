@@ -15,6 +15,8 @@ interface GroupFormProps {
   /** Inherited values from tenant (shown as placeholder/reference) */
   inheritedValues?: {
     num_slots?: number;
+    ssp_slots?: number;
+    playlist_slots?: number;
     duration_seconds?: number;
   };
 }
@@ -37,21 +39,29 @@ export function GroupForm({
       name: "",
       duration_seconds: undefined,
       num_slots: undefined,
+      ssp_slots: undefined,
+      playlist_slots: undefined,
       ...defaultValues,
     },
   });
 
   const currentNumSlots = watch("num_slots");
   const currentDuration = watch("duration_seconds");
+  const currentSspSlots = watch("ssp_slots");
+  const currentPlaylistSlots = watch("playlist_slots");
 
   const numSlotsIsOverride = currentNumSlots != null && currentNumSlots !== undefined;
   const durationIsOverride = currentDuration != null && currentDuration !== undefined;
+  const sspSlotsIsOverride = currentSspSlots != null && currentSspSlots !== undefined;
+  const playlistSlotsIsOverride = currentPlaylistSlots != null && currentPlaylistSlots !== undefined;
 
   function handleFormSubmit(data: CreateGroupInput) {
     // Convert empty strings / 0 to null (means "inherit from tenant")
     const cleaned = {
       ...data,
       num_slots: data.num_slots || null,
+      ssp_slots: data.ssp_slots != null && data.ssp_slots !== undefined ? data.ssp_slots : null,
+      playlist_slots: data.playlist_slots != null && data.playlist_slots !== undefined ? data.playlist_slots : null,
       duration_seconds: data.duration_seconds || null,
     };
     onSubmit(cleaned);
@@ -152,6 +162,80 @@ export function GroupForm({
             <Info className="h-3 w-3" />
             Este valor es un override. Las pantallas de este grupo usarán {currentNumSlots} slots en vez de {inheritedValues.num_slots} del Network.
           </p>
+        )}
+      </div>
+
+      {/* SSP slots with inheritance indicator */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label htmlFor="ssp_slots">Slots SSP</Label>
+          {inheritedValues?.ssp_slots != null && !sspSlotsIsOverride && (
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <Info className="h-3 w-3" />
+              Heredado del Network: {inheritedValues.ssp_slots}
+            </span>
+          )}
+          {sspSlotsIsOverride && inheritedValues?.ssp_slots != null && (
+            <button
+              type="button"
+              className="text-xs text-primary hover:underline"
+              onClick={() => setValue("ssp_slots", null as any)}
+            >
+              Usar heredado ({inheritedValues.ssp_slots})
+            </button>
+          )}
+        </div>
+        <Input
+          id="ssp_slots"
+          type="number"
+          min={0}
+          placeholder={inheritedValues?.ssp_slots != null ? `${inheritedValues.ssp_slots} (heredado)` : "0"}
+          disabled={isSubmitting}
+          className={cn(
+            errors.ssp_slots && "border-red-500",
+            !sspSlotsIsOverride && "text-muted-foreground"
+          )}
+          {...register("ssp_slots")}
+        />
+        {errors.ssp_slots && (
+          <p className="text-sm text-red-500">{errors.ssp_slots.message}</p>
+        )}
+      </div>
+
+      {/* Playlist slots with inheritance indicator */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label htmlFor="playlist_slots">Slots Playlist</Label>
+          {inheritedValues?.playlist_slots != null && !playlistSlotsIsOverride && (
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <Info className="h-3 w-3" />
+              Heredado del Network: {inheritedValues.playlist_slots}
+            </span>
+          )}
+          {playlistSlotsIsOverride && inheritedValues?.playlist_slots != null && (
+            <button
+              type="button"
+              className="text-xs text-primary hover:underline"
+              onClick={() => setValue("playlist_slots", null as any)}
+            >
+              Usar heredado ({inheritedValues.playlist_slots})
+            </button>
+          )}
+        </div>
+        <Input
+          id="playlist_slots"
+          type="number"
+          min={0}
+          placeholder={inheritedValues?.playlist_slots != null ? `${inheritedValues.playlist_slots} (heredado)` : "0"}
+          disabled={isSubmitting}
+          className={cn(
+            errors.playlist_slots && "border-red-500",
+            !playlistSlotsIsOverride && "text-muted-foreground"
+          )}
+          {...register("playlist_slots")}
+        />
+        {errors.playlist_slots && (
+          <p className="text-sm text-red-500">{errors.playlist_slots.message}</p>
         )}
       </div>
 

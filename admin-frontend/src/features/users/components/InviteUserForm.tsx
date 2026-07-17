@@ -27,7 +27,7 @@ export function InviteUserForm({ onSubmit, isSubmitting = false }: InviteUserFor
     formState: { errors },
   } = useForm<InviteUserFormValues>({
     resolver: zodResolver(inviteUserSchema),
-    defaultValues: { email: '', role: 'trafficker' },
+    defaultValues: { name: '', email: '', role: 'trafficker' },
   });
 
   const selectedRole = watch('role');
@@ -35,7 +35,16 @@ export function InviteUserForm({ onSubmit, isSubmitting = false }: InviteUserFor
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <FormField
-        label="Email"
+        label="Nombre"
+        name="name"
+        register={register}
+        errors={errors}
+        placeholder="Nombre completo"
+        disabled={isSubmitting}
+      />
+
+      <FormField
+        label="Email *"
         name="email"
         type="email"
         register={register}
@@ -45,7 +54,7 @@ export function InviteUserForm({ onSubmit, isSubmitting = false }: InviteUserFor
       />
 
       <div className="space-y-2">
-        <Label htmlFor="role">Rol</Label>
+        <Label htmlFor="role">Rol *</Label>
         <Select
           value={selectedRole}
           onValueChange={(value) => setValue('role', value as 'tenant_admin' | 'trafficker')}
@@ -55,7 +64,7 @@ export function InviteUserForm({ onSubmit, isSubmitting = false }: InviteUserFor
             <SelectValue placeholder="Seleccione un rol" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="tenant_admin">Administrador de Tenant</SelectItem>
+            <SelectItem value="tenant_admin">Administrador</SelectItem>
             <SelectItem value="trafficker">Trafficker</SelectItem>
           </SelectContent>
         </Select>

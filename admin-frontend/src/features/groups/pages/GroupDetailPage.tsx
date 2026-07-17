@@ -159,8 +159,8 @@ export default function GroupDetailPage() {
           {/* Loop / Inventario info */}
           {(() => {
             const numSlots = group.num_slots ?? loopConfig?.num_slots ?? 10;
-            const sspSlots = loopConfig?.ssp_slots ?? 2;
-            const playlistSlots = loopConfig?.playlist_slots ?? 1;
+            const sspSlots = group.ssp_slots ?? loopConfig?.ssp_slots ?? 0;
+            const playlistSlots = group.playlist_slots ?? loopConfig?.playlist_slots ?? 0;
             const adSlots = numSlots - sspSlots - playlistSlots;
             const slotDuration = group.duration_seconds ?? 10;
 
@@ -274,11 +274,15 @@ export default function GroupDetailPage() {
               name: group.name,
               duration_seconds: group.duration_seconds ?? undefined,
               num_slots: group.num_slots ?? undefined,
+              ssp_slots: group.ssp_slots ?? undefined,
+              playlist_slots: group.playlist_slots ?? undefined,
             }}
             onSubmit={handleUpdate}
             isSubmitting={updateGroup.isPending}
             inheritedValues={{
               num_slots: loopConfig?.num_slots ?? 10,
+              ssp_slots: loopConfig?.ssp_slots ?? 0,
+              playlist_slots: loopConfig?.playlist_slots ?? 0,
               duration_seconds: 10, // tenant default
             }}
           />

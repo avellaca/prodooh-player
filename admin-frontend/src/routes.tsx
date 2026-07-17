@@ -18,6 +18,9 @@ import OrdersPage from '@/features/orders/pages/OrdersPage';
 import OrderDetailPage from '@/features/orders/pages/OrderDetailPage';
 import OrderLineDetailPage from '@/features/orders/pages/OrderLineDetailPage';
 import SettingsPage from '@/features/settings/pages/SettingsPage';
+import SspAdminPage from '@/features/ssp/SspAdminPage';
+import SspPage from '@/features/ssp/SspPage';
+import { UserManagementPage } from '@/features/users';
 
 export default function AppRoutes() {
   return (
@@ -34,6 +37,7 @@ export default function AppRoutes() {
           {/* Solo super_admin */}
           <Route element={<RoleGuard roles={['super_admin']} />}>
             <Route path="/networks" element={<NetworksPage />} />
+            <Route path="/ssp-admin" element={<SspAdminPage />} />
           </Route>
 
           {/* super_admin + tenant_admin (excluye trafficker) */}
@@ -45,6 +49,8 @@ export default function AppRoutes() {
             <Route path="/playlists" element={<PlaylistsPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/ssp" element={<SspPage />} />
+            <Route path="/users" element={<UserManagementPage />} />
           </Route>
 
           {/* Todos los roles autenticados */}

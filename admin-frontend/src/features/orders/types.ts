@@ -10,6 +10,8 @@ export interface Order {
   starts_at: string | null;
   ends_at: string | null;
   status: 'draft' | 'active' | 'paused' | 'finished';
+  total_target_spots?: number | null;
+  total_delivered?: number;
   created_at: string;
   updated_at: string;
   order_lines_count?: number;

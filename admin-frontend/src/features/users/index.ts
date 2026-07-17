@@ -1,6 +1,6 @@
 export { UserManagementPage } from './components/UserManagementPage';
 export { UserList } from './components/UserList';
 export { InviteUserForm } from './components/InviteUserForm';
-export { useUsers, useInviteUser } from './hooks';
+export { useUsers, useInviteUser, useUpdateUser, useToggleUserActive, useDeleteUser, useResendInvite, useSendReset } from './hooks';
 export { usersApi } from './api';
-export type { User, InviteUserInput } from './types';
+export type { User, InviteUserInput, UpdateUserInput } from './types';

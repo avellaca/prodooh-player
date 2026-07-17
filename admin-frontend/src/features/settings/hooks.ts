@@ -33,12 +33,17 @@ export function useUpdateLoopConfig() {
 
 export function usePropagateLoopConfig() {
   return useMutation({
-    mutationFn: (tenantId: string) => settingsApi.propagateLoopConfig(tenantId),
-    onSuccess: (data, tenantId) => {
+    mutationFn: ({ tenantId, excludeGroupIds, excludeScreenIds }: {
+      tenantId: string;
+      excludeGroupIds?: string[];
+      excludeScreenIds?: string[];
+    }) => settingsApi.propagateLoopConfig(tenantId, excludeGroupIds, excludeScreenIds),
+    onSuccess: (data, { tenantId }) => {
       queryClient.invalidateQueries({ queryKey: ['tenants'] });
       queryClient.invalidateQueries({ queryKey: ['loop-config', tenantId] });
       queryClient.invalidateQueries({ queryKey: ['groups'] });
       queryClient.invalidateQueries({ queryKey: ['screens'] });
+      queryClient.invalidateQueries({ queryKey: ['loop-config-overrides', tenantId] });
       toast.success(
         `Propagación completada: ${data.affected_screen_groups} grupos y ${data.affected_screens} pantallas actualizados`
       );

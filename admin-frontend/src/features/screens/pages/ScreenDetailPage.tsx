@@ -187,8 +187,8 @@ export default function ScreenDetailPage() {
           {/* Loop / Inventario info */}
           {(() => {
             const numSlots = screen.num_slots ?? screen.screen_group?.num_slots ?? loopConfig?.num_slots ?? 10;
-            const sspSlots = loopConfig?.ssp_slots ?? 2;
-            const playlistSlots = loopConfig?.playlist_slots ?? 1;
+            const sspSlots = screen.ssp_slots ?? screen.screen_group?.ssp_slots ?? loopConfig?.ssp_slots ?? 0;
+            const playlistSlots = screen.playlist_slots ?? screen.screen_group?.playlist_slots ?? loopConfig?.playlist_slots ?? 0;
             const adSlots = numSlots - sspSlots - playlistSlots;
             const slotDuration = screen.screen_group?.duration_seconds ?? 10;
 
@@ -345,6 +345,8 @@ export default function ScreenDetailPage() {
         isPending={updateScreen.isPending}
         inheritedValues={{
           num_slots: screen.screen_group?.num_slots ?? loopConfig?.num_slots ?? 10,
+          ssp_slots: screen.screen_group?.ssp_slots ?? loopConfig?.ssp_slots ?? 0,
+          playlist_slots: screen.screen_group?.playlist_slots ?? loopConfig?.playlist_slots ?? 0,
           duration_seconds: screen.screen_group?.duration_seconds ?? 10,
           num_slots_source: screen.screen_group?.num_slots ? 'Grupo' : 'Network',
           duration_source: screen.screen_group?.duration_seconds ? 'Grupo' : 'Network',
@@ -364,12 +366,16 @@ interface EditScreenDialogProps {
     resolution_width: number;
     resolution_height: number;
     num_slots?: number | null;
-    screen_group?: { num_slots?: number | null; duration_seconds?: number | null } | null;
+    ssp_slots?: number | null;
+    playlist_slots?: number | null;
+    screen_group?: { num_slots?: number | null; ssp_slots?: number | null; playlist_slots?: number | null; duration_seconds?: number | null } | null;
   };
   onSubmit: (data: UpdateScreenInput) => void;
   isPending: boolean;
   inheritedValues?: {
     num_slots: number;
+    ssp_slots: number;
+    playlist_slots: number;
     duration_seconds: number;
     num_slots_source: string;
     duration_source: string;
@@ -399,6 +405,8 @@ function EditScreenDialog({
       resolution_width: screen.resolution_width,
       resolution_height: screen.resolution_height,
       num_slots: (screen as any).num_slots ?? null,
+      ssp_slots: (screen as any).ssp_slots ?? null,
+      playlist_slots: (screen as any).playlist_slots ?? null,
       duration_seconds: null,
     },
   });
@@ -406,18 +414,26 @@ function EditScreenDialog({
   const orientation = watch("orientation");
   const currentNumSlots = watch("num_slots");
   const currentDuration = watch("duration_seconds");
+  const currentSspSlots = watch("ssp_slots");
+  const currentPlaylistSlots = watch("playlist_slots");
 
   // A field is an override only if it has a real positive numeric value
   const numSlotsIsOverride = currentNumSlots !== null && currentNumSlots !== undefined && currentNumSlots !== '' && Number(currentNumSlots) > 0;
   const durationIsOverride = currentDuration !== null && currentDuration !== undefined && currentDuration !== '' && Number(currentDuration) > 0;
+  const sspSlotsIsOverride = currentSspSlots !== null && currentSspSlots !== undefined && currentSspSlots !== '' && Number(currentSspSlots) >= 0 && String(currentSspSlots) !== '';
+  const playlistSlotsIsOverride = currentPlaylistSlots !== null && currentPlaylistSlots !== undefined && currentPlaylistSlots !== '' && Number(currentPlaylistSlots) >= 0 && String(currentPlaylistSlots) !== '';
 
   function handleFormSubmit(data: UpdateScreenInput) {
     // Explicitly send null for fields that should inherit (cleared overrides)
     const numSlots = data.num_slots && Number(data.num_slots) > 0 ? Number(data.num_slots) : null;
+    const sspSlots = data.ssp_slots != null && data.ssp_slots !== undefined && String(data.ssp_slots) !== '' ? Number(data.ssp_slots) : null;
+    const playlistSlots = data.playlist_slots != null && data.playlist_slots !== undefined && String(data.playlist_slots) !== '' ? Number(data.playlist_slots) : null;
     const duration = data.duration_seconds && Number(data.duration_seconds) > 0 ? Number(data.duration_seconds) : null;
     const cleaned: Record<string, unknown> = {
       ...data,
       num_slots: numSlots,
+      ssp_slots: sspSlots,
+      playlist_slots: playlistSlots,
       duration_seconds: duration,
     };
     onSubmit(cleaned as UpdateScreenInput);
@@ -535,6 +551,62 @@ function EditScreenDialog({
                 Override: esta pantalla usará {currentNumSlots} slots en vez de {inheritedValues.num_slots} del {inheritedValues.num_slots_source}.
               </p>
             )}
+          </div>
+
+          {/* SSP slots with inheritance */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="edit-ssp_slots">Slots SSP</Label>
+              {inheritedValues && !sspSlotsIsOverride && (
+                <span className="text-xs text-muted-foreground">
+                  Heredado: {inheritedValues.ssp_slots}
+                </span>
+              )}
+              {sspSlotsIsOverride && inheritedValues && (
+                <button
+                  type="button"
+                  className="text-xs text-primary hover:underline"
+                  onClick={() => setValue("ssp_slots", null as any)}
+                >
+                  Usar heredado ({inheritedValues.ssp_slots})
+                </button>
+              )}
+            </div>
+            <Input
+              id="edit-ssp_slots"
+              type="number"
+              min={0}
+              placeholder={inheritedValues ? `${inheritedValues.ssp_slots} (heredado)` : "0"}
+              {...register("ssp_slots")}
+            />
+          </div>
+
+          {/* Playlist slots with inheritance */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="edit-playlist_slots">Slots Playlist</Label>
+              {inheritedValues && !playlistSlotsIsOverride && (
+                <span className="text-xs text-muted-foreground">
+                  Heredado: {inheritedValues.playlist_slots}
+                </span>
+              )}
+              {playlistSlotsIsOverride && inheritedValues && (
+                <button
+                  type="button"
+                  className="text-xs text-primary hover:underline"
+                  onClick={() => setValue("playlist_slots", null as any)}
+                >
+                  Usar heredado ({inheritedValues.playlist_slots})
+                </button>
+              )}
+            </div>
+            <Input
+              id="edit-playlist_slots"
+              type="number"
+              min={0}
+              placeholder={inheritedValues ? `${inheritedValues.playlist_slots} (heredado)` : "0"}
+              {...register("playlist_slots")}
+            />
           </div>
 
           {/* Duration with inheritance */}

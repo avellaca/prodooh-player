@@ -45,6 +45,7 @@ import {
   useOrder,
   useOrderLines,
   useUpdateOrder,
+  useActivateOrder,
   useCreateOrderLine,
   useUpdateOrderLine,
   useDeleteOrderLine,
@@ -149,6 +150,7 @@ export default function OrderDetailPage() {
 
   // Mutations
   const updateOrder = useUpdateOrder();
+  const activateOrder = useActivateOrder();
   const createOrderLine = useCreateOrderLine(id ?? '');
   const updateOrderLine = useUpdateOrderLine(id ?? '');
   const deleteOrderLine = useDeleteOrderLine(id ?? '');
@@ -438,7 +440,7 @@ export default function OrderDetailPage() {
               onClick={() => {
                 // Activate order only, not lines
                 if (pendingOrderStatus) {
-                  updateOrder.mutate({ id: order.id, data: { status: pendingOrderStatus } });
+                  activateOrder.mutate(order.id);
                 }
                 setActivateOrderConfirmOpen(false);
                 setPendingOrderStatus(null);
@@ -450,19 +452,16 @@ export default function OrderDetailPage() {
               onClick={() => {
                 // Activate order AND all lines
                 if (pendingOrderStatus) {
-                  updateOrder.mutate(
-                    { id: order.id, data: { status: pendingOrderStatus } },
-                    {
-                      onSuccess: () => {
-                        // Activate all draft/paused lines
-                        orderLines?.forEach((line) => {
-                          if (line.status === 'draft' || line.status === 'paused') {
-                            updateOrderLine.mutate({ id: line.id, data: { status: 'active' } });
-                          }
-                        });
-                      },
-                    }
-                  );
+                  activateOrder.mutate(order.id, {
+                    onSuccess: () => {
+                      // Activate all draft/paused lines
+                      orderLines?.forEach((line) => {
+                        if (line.status === 'draft' || line.status === 'paused') {
+                          updateOrderLine.mutate({ id: line.id, data: { status: 'active' } });
+                        }
+                      });
+                    },
+                  });
                 }
                 setActivateOrderConfirmOpen(false);
                 setPendingOrderStatus(null);
@@ -517,15 +516,20 @@ function OrderLineRow({ line, lineProgress, isTrafficker, onToggleStatus, onDele
               <span className="text-[10px] text-muted-foreground whitespace-nowrap">{lineProgress.total_progress}%</span>
             </div>
             {lineProgress.today_progress !== null && (
-              <div className="flex items-center gap-1">
-                <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-green-500 transition-all"
-                    style={{ width: `${lineProgress.today_progress}%` }}
-                  />
+              <span className="relative group">
+                <div className="flex items-center gap-1">
+                  <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-green-500 transition-all"
+                      style={{ width: `${lineProgress.today_progress}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">hoy {lineProgress.today_progress}%</span>
                 </div>
-                <span className="text-[10px] text-muted-foreground whitespace-nowrap">hoy {lineProgress.today_progress}%</span>
-              </div>
+                <span className="absolute left-0 bottom-full mb-1 hidden group-hover:block bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap z-50">
+                  Hoy: {lineProgress.today_delivered.toLocaleString()} / {lineProgress.daily_budget?.toLocaleString() ?? '—'} spots
+                </span>
+              </span>
             )}
           </div>
         ) : (

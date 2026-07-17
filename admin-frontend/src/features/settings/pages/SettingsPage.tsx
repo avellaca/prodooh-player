@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/use-auth';
 import { useTenantContext } from '@/contexts/TenantContext';
 import { LoopConfigPanel } from '../LoopConfigPanel';
@@ -51,6 +52,14 @@ export default function SettingsPage() {
             playlist_slots: config.playlist_slots,
           } : undefined}
         />
+        {config && config.ssp_slots > 0 && (
+          <div className="rounded-lg border bg-muted/30 p-4">
+            <p className="text-sm text-muted-foreground">
+              Configura las conexiones y prioridades a plataformas SSP desde el menú{' '}
+              <Link to="/ssp" className="text-primary font-medium hover:underline">SSP</Link>.
+            </p>
+          </div>
+        )}
         <NetworkSettingsPanel tenantId={tenantId} />
       </div>
     </div>

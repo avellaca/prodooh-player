@@ -90,6 +90,8 @@ class ScreenController extends Controller
             'resolution_width' => ['sometimes', 'integer', 'min:1'],
             'resolution_height' => ['sometimes', 'integer', 'min:1'],
             'num_slots' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:100'],
+            'ssp_slots' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            'playlist_slots' => ['sometimes', 'nullable', 'integer', 'min:0'],
             'group_id' => ['sometimes', 'nullable', 'string'],
             'enabled' => ['sometimes', 'boolean'],
             'duration_seconds' => ['sometimes', 'nullable', 'integer', 'min:1'],

@@ -18,7 +18,25 @@ class OrderController extends Controller
      */
     public function index(): JsonResponse
     {
-        $orders = Order::with('advertiser')->withCount('orderLines')->get();
+        $orders = Order::with('advertiser')
+            ->withCount('orderLines')
+            ->withSum('orderLines as total_target_spots', 'target_spots')
+            ->get();
+
+        // Add total delivered impressions per order
+        $orderIds = $orders->pluck('id')->all();
+        $impressionCounts = \App\Models\Impression::whereIn('order_line_id', function ($q) use ($orderIds) {
+            $q->select('id')->from('order_lines')->whereIn('order_id', $orderIds);
+        })
+            ->where('result', 'success')
+            ->selectRaw('order_lines.order_id, count(*) as total')
+            ->join('order_lines', 'impressions.order_line_id', '=', 'order_lines.id')
+            ->groupBy('order_lines.order_id')
+            ->pluck('total', 'order_lines.order_id');
+
+        $orders->each(function ($order) use ($impressionCounts) {
+            $order->total_delivered = $impressionCounts[$order->id] ?? 0;
+        });
 
         return response()->json(['data' => $orders]);
     }

@@ -21,22 +21,23 @@ class ImpressionsController extends Controller
     {
         $request->validate([
             'impressions' => 'required|array|min:1',
-            'impressions.*.order_line_id' => 'required|uuid|exists:order_lines,id',
-            'impressions.*.creative_id' => 'required|uuid|exists:creatives,id',
+            'impressions.*.order_line_id' => 'required|uuid',
+            'impressions.*.creative_id' => 'nullable|uuid',
             'impressions.*.started_at' => 'required|date',
             'impressions.*.ended_at' => 'nullable|date',
             'impressions.*.duration_seconds' => 'required|numeric|min:0',
             'impressions.*.result' => 'required|in:success,failed',
             'impressions.*.failure_reason' => 'nullable|string',
+            'impressions.*.mode' => 'nullable|string|in:normal,witness',
         ]);
 
         $screenId = $request->attributes->get('screen_id');
         $impressions = $request->input('impressions');
 
         foreach ($impressions as $impression) {
-            // Deduplicate: skip if same screen + creative + started_at already exists
+            // Deduplicate: skip if same screen + order_line + started_at already exists
             $exists = Impression::where('screen_id', $screenId)
-                ->where('creative_id', $impression['creative_id'])
+                ->where('order_line_id', $impression['order_line_id'])
                 ->where('started_at', $impression['started_at'])
                 ->exists();
 
@@ -47,13 +48,14 @@ class ImpressionsController extends Controller
             Impression::create([
                 'screen_id' => $screenId,
                 'order_line_id' => $impression['order_line_id'],
-                'creative_id' => $impression['creative_id'],
+                'creative_id' => $impression['creative_id'] ?? null,
                 'source' => 'order_line',
                 'started_at' => $impression['started_at'],
                 'ended_at' => $impression['ended_at'] ?? null,
                 'duration_seconds' => $impression['duration_seconds'],
                 'result' => $impression['result'],
                 'failure_reason' => $impression['failure_reason'] ?? null,
+                'mode' => $impression['mode'] ?? 'normal',
             ]);
         }
 

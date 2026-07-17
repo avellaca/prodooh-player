@@ -45,6 +45,9 @@ class ScreenGroupController extends Controller
             'tenant_id' => ['required', 'uuid', 'exists:tenants,id'],
             'name' => ['required', 'string', 'max:255'],
             'duration_seconds' => ['nullable', 'integer', 'min:1'],
+            'num_slots' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'ssp_slots' => ['nullable', 'integer', 'min:0'],
+            'playlist_slots' => ['nullable', 'integer', 'min:0'],
             'schedule' => ['nullable', 'array'],
         ], [
             'tenant_id.required' => 'El network es obligatorio.',
@@ -80,6 +83,8 @@ class ScreenGroupController extends Controller
             'name' => ['sometimes', 'string', 'max:255'],
             'duration_seconds' => ['nullable', 'integer', 'min:1'],
             'num_slots' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'ssp_slots' => ['nullable', 'integer', 'min:0'],
+            'playlist_slots' => ['nullable', 'integer', 'min:0'],
             'schedule' => ['nullable', 'array'],
         ]);
 

@@ -25,6 +25,8 @@ export interface Screen {
   resolution_width: number;
   resolution_height: number;
   num_slots: number | null;
+  ssp_slots: number | null;
+  playlist_slots: number | null;
   schedule: ScheduleSlot[] | null;
   last_heartbeat: string | null;
   created_at: string;
@@ -39,6 +41,8 @@ export interface ScreenGroup {
   tenant_id: string;
   name: string;
   num_slots: number | null;
+  ssp_slots: number | null;
+  playlist_slots: number | null;
   duration_seconds: number | null;
   schedule: ScheduleSlot[] | null;
   created_at: string;

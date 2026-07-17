@@ -31,6 +31,8 @@ import {
 } from "../hooks";
 import { useTenantContext } from "@/contexts/TenantContext";
 import { useAuth } from "@/hooks/use-auth";
+import { settingsApi } from "@/features/settings/api";
+import { useQuery } from "@tanstack/react-query";
 import type { ScreenGroup } from "@/types/models";
 import type { CreateGroupInput } from "@/schemas/group.schema";
 
@@ -49,6 +51,13 @@ export default function GroupsPage() {
   const createGroup = useCreateGroup();
   const updateGroup = useUpdateGroup();
   const deleteGroup = useDeleteGroup();
+
+  const tenantId = isSuperAdmin ? selectedTenantId : user?.tenant_id;
+  const { data: loopConfig } = useQuery({
+    queryKey: ['loop-config', tenantId],
+    queryFn: () => settingsApi.getLoopConfig(tenantId!),
+    enabled: !!tenantId,
+  });
 
   const columns: ColumnDef<ScreenGroup, unknown>[] = [
     {
@@ -215,6 +224,11 @@ export default function GroupsPage() {
           <GroupForm
             onSubmit={handleCreate}
             isSubmitting={createGroup.isPending}
+            inheritedValues={loopConfig ? {
+              num_slots: loopConfig.num_slots,
+              ssp_slots: loopConfig.ssp_slots,
+              playlist_slots: loopConfig.playlist_slots,
+            } : undefined}
           />
         </DialogContent>
       </Dialog>
@@ -239,9 +253,17 @@ export default function GroupsPage() {
               defaultValues={{
                 name: editingGroup.name,
                 duration_seconds: editingGroup.duration_seconds ?? undefined,
+                num_slots: editingGroup.num_slots ?? undefined,
+                ssp_slots: editingGroup.ssp_slots ?? undefined,
+                playlist_slots: editingGroup.playlist_slots ?? undefined,
               }}
               onSubmit={handleUpdate}
               isSubmitting={updateGroup.isPending}
+              inheritedValues={loopConfig ? {
+                num_slots: loopConfig.num_slots,
+                ssp_slots: loopConfig.ssp_slots,
+                playlist_slots: loopConfig.playlist_slots,
+              } : undefined}
             />
           )}
         </DialogContent>

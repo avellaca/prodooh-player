@@ -75,6 +75,20 @@ export function useUpdateOrder() {
   });
 }
 
+export function useActivateOrder() {
+  return useMutation({
+    mutationFn: (id: string) => ordersApi.activate(id),
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['orders', id] });
+      toast.success('Pedido activado exitosamente');
+    },
+    onError: (error: Error & { response?: { data?: { message?: string } } }) => {
+      toast.error(error.response?.data?.message ?? 'Error al activar pedido');
+    },
+  });
+}
+
 export function useDeleteOrder() {
   return useMutation({
     mutationFn: (id: string) => ordersApi.delete(id),
@@ -177,27 +191,6 @@ export function useActivateOrderLine(
 }
 
 // ─── Creatives ───────────────────────────────────────────────────────────────
-
-export function useCreatives(orderLineId: string | undefined) {
-  return useQuery({
-    queryKey: ['order-lines', orderLineId, 'creatives'],
-    queryFn: () => creativesApi.list(orderLineId!),
-    enabled: !!orderLineId,
-  });
-}
-
-export function useCreateCreative(orderLineId: string) {
-  return useMutation({
-    mutationFn: (data: CreateCreativeInput) => creativesApi.create(orderLineId, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['order-lines', orderLineId, 'creatives'] });
-      toast.success('Creativo agregado exitosamente');
-    },
-    onError: (error: Error & { response?: { data?: { message?: string } } }) => {
-      toast.error(error.response?.data?.message ?? 'Error al agregar creativo');
-    },
-  });
-}
 
 export function useUpdateCreative(orderLineId: string) {
   return useMutation({

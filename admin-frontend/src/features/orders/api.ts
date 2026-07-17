@@ -122,6 +122,9 @@ export const ordersApi = {
   update: (id: string, data: UpdateOrderInput) =>
     api.put<{ data: Order }>(`/admin/orders/${id}`, data).then((r) => r.data.data),
 
+  activate: (id: string) =>
+    api.patch<{ data: Order }>(`/admin/orders/${id}/activate`).then((r) => r.data.data),
+
   delete: (id: string) =>
     api.delete(`/admin/orders/${id}`),
 
@@ -169,12 +172,6 @@ export const orderLinesApi = {
 };
 
 export const creativesApi = {
-  list: (orderLineId: string) =>
-    api.get<{ data: Creative[] }>(`/admin/order-lines/${orderLineId}/creatives`).then((r) => r.data.data),
-
-  create: (orderLineId: string, data: CreateCreativeInput) =>
-    api.post<{ data: Creative }>(`/admin/order-lines/${orderLineId}/creatives`, data).then((r) => r.data.data),
-
   listByTarget: (targetId: string) =>
     api.get<{ data: Creative[] }>(`/admin/order-line-targets/${targetId}/creatives`).then((r) => r.data.data),
 

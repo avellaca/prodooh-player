@@ -37,8 +37,12 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem(TOKEN_KEY);
-      window.location.href = '/login';
+      // Don't logout if it's a domain-level 401 (e.g., SSP ping failed)
+      const isPingFail = error.response?.data?.ping_failed === true;
+      if (!isPingFail) {
+        localStorage.removeItem(TOKEN_KEY);
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }

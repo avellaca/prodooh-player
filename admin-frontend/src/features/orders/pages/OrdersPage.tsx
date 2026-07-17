@@ -29,7 +29,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-import { useOrders, useCreateOrder, useUpdateOrder, useDeleteOrder } from "../hooks";
+import { useOrders, useCreateOrder, useUpdateOrder, useActivateOrder, useDeleteOrder } from "../hooks";
 import { orderCreateSchema, type OrderCreateFormValues } from "../schemas";
 import { useAuth } from "@/hooks/use-auth";
 import { useTenantContext } from "@/contexts/TenantContext";
@@ -60,13 +60,18 @@ export default function OrdersPage() {
   const { data: orders, isLoading, isError, refetch } = useOrders();
   const createOrder = useCreateOrder();
   const updateOrder = useUpdateOrder();
+  const activateOrder = useActivateOrder();
   const deleteOrder = useDeleteOrder();
 
   // ─── Toggle pause/activate ───────────────────────────────────────────────
 
   function handleToggleStatus(order: Order) {
-    const newStatus = order.status === "active" ? "paused" : "active";
-    updateOrder.mutate({ id: order.id, data: { status: newStatus } });
+    if (order.status === "active") {
+      updateOrder.mutate({ id: order.id, data: { status: "paused" } });
+    } else {
+      // Use dedicated activate endpoint with validation
+      activateOrder.mutate(order.id);
+    }
   }
 
   // ─── Columns ─────────────────────────────────────────────────────────────
@@ -90,6 +95,29 @@ export default function OrdersPage() {
       accessorKey: "ends_at",
       header: "Fin",
       cell: ({ row }) => row.original.ends_at ? format(new Date(row.original.ends_at), "dd/MM/yyyy") : "—",
+    },
+    {
+      id: "progress",
+      header: "Progreso",
+      cell: ({ row }) => {
+        const target = row.original.total_target_spots;
+        const delivered = row.original.total_delivered ?? 0;
+        if (!target || target === 0) return <span className="text-xs text-muted-foreground">—</span>;
+        const pct = Math.min(100, Math.round((delivered / target) * 100));
+        return (
+          <div className="min-w-[80px]">
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-primary transition-all"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <span className="text-[10px] text-muted-foreground whitespace-nowrap">{pct}%</span>
+            </div>
+          </div>
+        );
+      },
     },
     {
       accessorKey: "status",

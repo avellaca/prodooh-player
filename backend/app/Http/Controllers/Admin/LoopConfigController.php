@@ -121,7 +121,8 @@ class LoopConfigController extends Controller
     /**
      * POST /api/admin/tenants/{id}/loop-config/propagate
      *
-     * Propagate num_slots to all ScreenGroups and Screens that don't have an explicit override.
+     * Propagate num_slots to all ScreenGroups and Screens.
+     * Accepts optional exclude_group_ids and exclude_screen_ids to skip specific entities.
      * Only tenant_admin (own tenant) or super_admin allowed.
      */
     public function propagate(Request $request, string $id): JsonResponse
@@ -137,32 +138,56 @@ class LoopConfigController extends Controller
             ], 403);
         }
 
-        // Count ALL entities that will be affected (forced override)
-        $affectedGroups = ScreenGroup::withoutGlobalScope('tenant')
-            ->where('tenant_id', $tenant->id)
-            ->count();
+        $data = $request->validate([
+            'exclude_group_ids' => ['sometimes', 'array'],
+            'exclude_group_ids.*' => ['uuid'],
+            'exclude_screen_ids' => ['sometimes', 'array'],
+            'exclude_screen_ids.*' => ['uuid'],
+        ]);
 
-        $affectedScreens = Screen::withoutGlobalScope('tenant')
-            ->where('tenant_id', $tenant->id)
-            ->count();
+        $excludeGroupIds = $data['exclude_group_ids'] ?? [];
+        $excludeScreenIds = $data['exclude_screen_ids'] ?? [];
 
-        // Force override: set num_slots, ssp_slots, playlist_slots on ALL descendants
-        // This overwrites any existing custom values
-        ScreenGroup::withoutGlobalScope('tenant')
-            ->where('tenant_id', $tenant->id)
-            ->update([
-                'num_slots' => $tenant->num_slots,
-                'ssp_slots' => $tenant->ssp_slots,
-                'playlist_slots' => $tenant->playlist_slots,
-            ]);
+        // Count entities that will be affected
+        $groupsQuery = ScreenGroup::withoutGlobalScope('tenant')
+            ->where('tenant_id', $tenant->id);
+        $screensQuery = Screen::withoutGlobalScope('tenant')
+            ->where('tenant_id', $tenant->id);
 
-        Screen::withoutGlobalScope('tenant')
-            ->where('tenant_id', $tenant->id)
-            ->update([
-                'num_slots' => $tenant->num_slots,
-                'ssp_slots' => $tenant->ssp_slots,
-                'playlist_slots' => $tenant->playlist_slots,
-            ]);
+        if (!empty($excludeGroupIds)) {
+            $groupsQuery->whereNotIn('id', $excludeGroupIds);
+        }
+        if (!empty($excludeScreenIds)) {
+            $screensQuery->whereNotIn('id', $excludeScreenIds);
+        }
+
+        $affectedGroups = $groupsQuery->count();
+        $affectedScreens = $screensQuery->count();
+
+        // Force override on non-excluded entities
+        $groupsUpdate = ScreenGroup::withoutGlobalScope('tenant')
+            ->where('tenant_id', $tenant->id);
+        $screensUpdate = Screen::withoutGlobalScope('tenant')
+            ->where('tenant_id', $tenant->id);
+
+        if (!empty($excludeGroupIds)) {
+            $groupsUpdate->whereNotIn('id', $excludeGroupIds);
+        }
+        if (!empty($excludeScreenIds)) {
+            $screensUpdate->whereNotIn('id', $excludeScreenIds);
+        }
+
+        $groupsUpdate->update([
+            'num_slots' => $tenant->num_slots,
+            'ssp_slots' => $tenant->ssp_slots,
+            'playlist_slots' => $tenant->playlist_slots,
+        ]);
+
+        $screensUpdate->update([
+            'num_slots' => $tenant->num_slots,
+            'ssp_slots' => $tenant->ssp_slots,
+            'playlist_slots' => $tenant->playlist_slots,
+        ]);
 
         return response()->json([
             'message' => 'Configuración aplicada a todos los grupos y pantallas.',
@@ -170,6 +195,67 @@ class LoopConfigController extends Controller
             'affected_screens' => $affectedScreens,
             'num_slots' => $tenant->num_slots,
         ]);
+    }
+
+    /**
+     * GET /api/admin/tenants/{id}/loop-config/overrides
+     *
+     * List groups and screens that have a configuration different from the tenant's.
+     */
+    public function overrides(Request $request, string $id): JsonResponse
+    {
+        $user = $request->user();
+        $tenant = Tenant::findOrFail($id);
+
+        if (!$this->canManageTenant($user, $tenant)) {
+            return response()->json([
+                'error' => 'Forbidden',
+                'message' => 'You do not have permission to view this configuration.',
+            ], 403);
+        }
+
+        // Groups with different config than tenant
+        $groups = ScreenGroup::withoutGlobalScope('tenant')
+            ->where('tenant_id', $tenant->id)
+            ->where(function ($q) use ($tenant) {
+                $q->where('num_slots', '!=', $tenant->num_slots)
+                  ->orWhere('ssp_slots', '!=', $tenant->ssp_slots)
+                  ->orWhere('playlist_slots', '!=', $tenant->playlist_slots);
+            })
+            ->orderBy('name')
+            ->get(['id', 'name', 'num_slots', 'ssp_slots', 'playlist_slots'])
+            ->map(fn ($g) => [
+                'id' => $g->id,
+                'name' => $g->name,
+                'type' => 'group',
+                'num_slots' => $g->num_slots,
+                'ssp_slots' => $g->ssp_slots,
+                'playlist_slots' => $g->playlist_slots,
+            ]);
+
+        // Screens with different config than tenant
+        $screens = Screen::withoutGlobalScope('tenant')
+            ->where('tenant_id', $tenant->id)
+            ->where(function ($q) use ($tenant) {
+                $q->where('num_slots', '!=', $tenant->num_slots)
+                  ->orWhere('ssp_slots', '!=', $tenant->ssp_slots)
+                  ->orWhere('playlist_slots', '!=', $tenant->playlist_slots);
+            })
+            ->orderBy('name')
+            ->get(['id', 'name', 'num_slots', 'ssp_slots', 'playlist_slots'])
+            ->map(fn ($s) => [
+                'id' => $s->id,
+                'name' => $s->name,
+                'type' => 'screen',
+                'num_slots' => $s->num_slots,
+                'ssp_slots' => $s->ssp_slots,
+                'playlist_slots' => $s->playlist_slots,
+            ]);
+
+        // Merge: groups first, then screens (both ordered by name)
+        $overrides = $groups->concat($screens)->values();
+
+        return response()->json(['data' => $overrides]);
     }
 
     /**

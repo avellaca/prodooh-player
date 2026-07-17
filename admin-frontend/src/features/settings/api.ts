@@ -15,6 +15,15 @@ export interface PropagateResponse {
   num_slots: number;
 }
 
+export interface OverrideItem {
+  id: string;
+  name: string;
+  type: 'group' | 'screen';
+  num_slots: number;
+  ssp_slots: number;
+  playlist_slots: number;
+}
+
 export interface NetworkSettingsResponse {
   sync_interval_seconds: number;
   cache_flush_interval_hours: number;
@@ -29,8 +38,14 @@ export const settingsApi = {
   updateLoopConfig: (tenantId: string, data: LoopConfigInput) =>
     api.put<Tenant>(`/admin/tenants/${tenantId}/loop-config`, data).then((r) => r.data),
 
-  propagateLoopConfig: (tenantId: string) =>
-    api.post<PropagateResponse>(`/admin/tenants/${tenantId}/loop-config/propagate`).then((r) => r.data),
+  propagateLoopConfig: (tenantId: string, excludeGroupIds?: string[], excludeScreenIds?: string[]) =>
+    api.post<PropagateResponse>(`/admin/tenants/${tenantId}/loop-config/propagate`, {
+      exclude_group_ids: excludeGroupIds ?? [],
+      exclude_screen_ids: excludeScreenIds ?? [],
+    }).then((r) => r.data),
+
+  getOverrides: (tenantId: string) =>
+    api.get<{ data: OverrideItem[] }>(`/admin/tenants/${tenantId}/loop-config/overrides`).then((r) => r.data.data),
 
   getNetworkSettings: (tenantId: string) =>
     api.get<{ num_slots: number; ssp_slots: number; playlist_slots: number; sync_interval_seconds: number; cache_flush_interval_hours: number }>(
