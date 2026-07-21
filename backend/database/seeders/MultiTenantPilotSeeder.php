@@ -60,6 +60,7 @@ class MultiTenantPilotSeeder extends Seeder
             ['email' => 'admin.tenant@prodooh.com'],
             [
                 'tenant_id' => $tenantA->id,
+                'name' => 'Carlos Avellaneda',
                 'password_hash' => Hash::make('Mexico2026!'),
                 'role' => 'tenant_admin',
             ]

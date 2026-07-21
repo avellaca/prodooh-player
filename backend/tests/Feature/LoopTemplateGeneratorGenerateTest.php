@@ -399,4 +399,311 @@ class LoopTemplateGeneratorGenerateTest extends TestCase
         $this->assertStringContainsString("/api/device/content/{$content->id}/file", $candidate['asset_url']);
         $this->assertEquals('abc123def456', $candidate['checksum_sha256']);
     }
+
+    // ─── Sequential mode: strategy is 'sequential' in manifest ──────────────
+
+    public function test_generate_sequential_mode_sets_strategy_to_sequential(): void
+    {
+        $tenant = Tenant::factory()->create([
+            'num_slots' => 5,
+            'ssp_slots' => 1,
+            'playlist_slots' => 1,
+            'default_duration_seconds' => 10,
+        ]);
+
+        $screen = Screen::factory()->create([
+            'tenant_id' => $tenant->id,
+        ]);
+
+        $order = Order::factory()->create([
+            'tenant_id' => $tenant->id,
+            'status' => 'active',
+        ]);
+
+        $line = OrderLine::factory()->create([
+            'order_id' => $order->id,
+            'priority_tier' => 'patrocinio',
+            'delivery_pace' => 'uniform',
+            'status' => 'active',
+            'starts_at' => now()->subDays(1),
+            'ends_at' => now()->addDays(10),
+            'slots_purchased' => 1,
+            'playback_mode' => 'sequential',
+        ]);
+
+        $content = Content::factory()->create(['tenant_id' => $tenant->id]);
+
+        $target = OrderLineTarget::factory()->create([
+            'order_line_id' => $line->id,
+            'screen_id' => $screen->id,
+            'screen_group_id' => null,
+        ]);
+
+        Creative::factory()->create([
+            'order_line_target_id' => $target->id,
+            'content_id' => $content->id,
+            'position' => 0,
+        ]);
+
+        $manifest = $this->generator->generate($screen);
+        $slots = $manifest->items['slots'];
+
+        $firstAdSlot = $slots[0];
+        $this->assertEquals('ad', $firstAdSlot['type']);
+        $this->assertEquals('sequential', $firstAdSlot['strategy']);
+    }
+
+    // ─── Sequential mode: all creatives ordered by position ASC ─────────────
+
+    public function test_generate_sequential_mode_orders_candidates_by_position_asc(): void
+    {
+        $tenant = Tenant::factory()->create([
+            'num_slots' => 5,
+            'ssp_slots' => 1,
+            'playlist_slots' => 1,
+            'default_duration_seconds' => 10,
+        ]);
+
+        $screen = Screen::factory()->create([
+            'tenant_id' => $tenant->id,
+        ]);
+
+        $order = Order::factory()->create([
+            'tenant_id' => $tenant->id,
+            'status' => 'active',
+        ]);
+
+        $line = OrderLine::factory()->create([
+            'order_id' => $order->id,
+            'priority_tier' => 'patrocinio',
+            'delivery_pace' => 'uniform',
+            'status' => 'active',
+            'starts_at' => now()->subDays(1),
+            'ends_at' => now()->addDays(10),
+            'slots_purchased' => 1,
+            'playback_mode' => 'sequential',
+        ]);
+
+        $content1 = Content::factory()->create(['tenant_id' => $tenant->id]);
+        $content2 = Content::factory()->create(['tenant_id' => $tenant->id]);
+        $content3 = Content::factory()->create(['tenant_id' => $tenant->id]);
+
+        $target = OrderLineTarget::factory()->create([
+            'order_line_id' => $line->id,
+            'screen_id' => $screen->id,
+            'screen_group_id' => null,
+        ]);
+
+        // Create creatives out of order to ensure position sorting works
+        $creative3 = Creative::factory()->create([
+            'order_line_target_id' => $target->id,
+            'content_id' => $content3->id,
+            'position' => 2,
+        ]);
+        $creative1 = Creative::factory()->create([
+            'order_line_target_id' => $target->id,
+            'content_id' => $content1->id,
+            'position' => 0,
+        ]);
+        $creative2 = Creative::factory()->create([
+            'order_line_target_id' => $target->id,
+            'content_id' => $content2->id,
+            'position' => 1,
+        ]);
+
+        $manifest = $this->generator->generate($screen);
+        $slots = $manifest->items['slots'];
+
+        $firstAdSlot = $slots[0];
+        $this->assertEquals('sequential', $firstAdSlot['strategy']);
+        $this->assertCount(3, $firstAdSlot['candidates']);
+
+        // Verify order: position 0, 1, 2
+        $this->assertEquals($creative1->id, $firstAdSlot['candidates'][0]['creative_id']);
+        $this->assertEquals($creative2->id, $firstAdSlot['candidates'][1]['creative_id']);
+        $this->assertEquals($creative3->id, $firstAdSlot['candidates'][2]['creative_id']);
+    }
+
+    // ─── Sequential mode: nulls last in ordering ────────────────────────────
+
+    public function test_generate_sequential_mode_puts_null_positions_last(): void
+    {
+        $tenant = Tenant::factory()->create([
+            'num_slots' => 5,
+            'ssp_slots' => 1,
+            'playlist_slots' => 1,
+            'default_duration_seconds' => 10,
+        ]);
+
+        $screen = Screen::factory()->create([
+            'tenant_id' => $tenant->id,
+        ]);
+
+        $order = Order::factory()->create([
+            'tenant_id' => $tenant->id,
+            'status' => 'active',
+        ]);
+
+        $line = OrderLine::factory()->create([
+            'order_id' => $order->id,
+            'priority_tier' => 'patrocinio',
+            'delivery_pace' => 'uniform',
+            'status' => 'active',
+            'starts_at' => now()->subDays(1),
+            'ends_at' => now()->addDays(10),
+            'slots_purchased' => 1,
+            'playback_mode' => 'sequential',
+        ]);
+
+        $content1 = Content::factory()->create(['tenant_id' => $tenant->id]);
+        $content2 = Content::factory()->create(['tenant_id' => $tenant->id]);
+        $content3 = Content::factory()->create(['tenant_id' => $tenant->id]);
+
+        $target = OrderLineTarget::factory()->create([
+            'order_line_id' => $line->id,
+            'screen_id' => $screen->id,
+            'screen_group_id' => null,
+        ]);
+
+        $creative1 = Creative::factory()->create([
+            'order_line_target_id' => $target->id,
+            'content_id' => $content1->id,
+            'position' => 0,
+        ]);
+        $creative2 = Creative::factory()->create([
+            'order_line_target_id' => $target->id,
+            'content_id' => $content2->id,
+            'position' => null, // No position — should appear last
+        ]);
+        $creative3 = Creative::factory()->create([
+            'order_line_target_id' => $target->id,
+            'content_id' => $content3->id,
+            'position' => 1,
+        ]);
+
+        $manifest = $this->generator->generate($screen);
+        $slots = $manifest->items['slots'];
+
+        $firstAdSlot = $slots[0];
+        $this->assertEquals('sequential', $firstAdSlot['strategy']);
+        $this->assertCount(3, $firstAdSlot['candidates']);
+
+        // Position 0 first, then position 1, then null last
+        $this->assertEquals($creative1->id, $firstAdSlot['candidates'][0]['creative_id']);
+        $this->assertEquals($creative3->id, $firstAdSlot['candidates'][1]['creative_id']);
+        $this->assertEquals($creative2->id, $firstAdSlot['candidates'][2]['creative_id']);
+    }
+
+    // ─── Sequential mode with target override ───────────────────────────────
+
+    public function test_generate_sequential_mode_respects_target_override(): void
+    {
+        $tenant = Tenant::factory()->create([
+            'num_slots' => 5,
+            'ssp_slots' => 1,
+            'playlist_slots' => 1,
+            'default_duration_seconds' => 10,
+        ]);
+
+        $screen = Screen::factory()->create([
+            'tenant_id' => $tenant->id,
+        ]);
+
+        $order = Order::factory()->create([
+            'tenant_id' => $tenant->id,
+            'status' => 'active',
+        ]);
+
+        // Order line is round_robin, but target overrides to sequential
+        $line = OrderLine::factory()->create([
+            'order_id' => $order->id,
+            'priority_tier' => 'patrocinio',
+            'delivery_pace' => 'uniform',
+            'status' => 'active',
+            'starts_at' => now()->subDays(1),
+            'ends_at' => now()->addDays(10),
+            'slots_purchased' => 1,
+            'playback_mode' => 'round_robin',
+        ]);
+
+        $content = Content::factory()->create(['tenant_id' => $tenant->id]);
+
+        $target = OrderLineTarget::factory()->create([
+            'order_line_id' => $line->id,
+            'screen_id' => $screen->id,
+            'screen_group_id' => null,
+            'playback_mode_override' => 'sequential',
+        ]);
+
+        Creative::factory()->create([
+            'order_line_target_id' => $target->id,
+            'content_id' => $content->id,
+            'position' => 0,
+        ]);
+
+        $manifest = $this->generator->generate($screen);
+        $slots = $manifest->items['slots'];
+
+        $firstAdSlot = $slots[0];
+        $this->assertEquals('sequential', $firstAdSlot['strategy']);
+    }
+
+    // ─── Round robin behavior unchanged ─────────────────────────────────────
+
+    public function test_generate_round_robin_mode_unchanged(): void
+    {
+        $tenant = Tenant::factory()->create([
+            'num_slots' => 5,
+            'ssp_slots' => 1,
+            'playlist_slots' => 1,
+            'default_duration_seconds' => 10,
+        ]);
+
+        $screen = Screen::factory()->create([
+            'tenant_id' => $tenant->id,
+        ]);
+
+        $order = Order::factory()->create([
+            'tenant_id' => $tenant->id,
+            'status' => 'active',
+        ]);
+
+        $line = OrderLine::factory()->create([
+            'order_id' => $order->id,
+            'priority_tier' => 'patrocinio',
+            'delivery_pace' => 'uniform',
+            'status' => 'active',
+            'starts_at' => now()->subDays(1),
+            'ends_at' => now()->addDays(10),
+            'slots_purchased' => 1,
+            'playback_mode' => 'round_robin',
+        ]);
+
+        $content = Content::factory()->create([
+            'tenant_id' => $tenant->id,
+            'checksum_sha256' => 'hash123',
+        ]);
+
+        $target = OrderLineTarget::factory()->create([
+            'order_line_id' => $line->id,
+            'screen_id' => $screen->id,
+            'screen_group_id' => null,
+            'playback_mode_override' => null,
+        ]);
+
+        $creative = Creative::factory()->create([
+            'order_line_target_id' => $target->id,
+            'content_id' => $content->id,
+        ]);
+
+        $manifest = $this->generator->generate($screen);
+        $slots = $manifest->items['slots'];
+
+        $firstAdSlot = $slots[0];
+        $this->assertEquals('ad', $firstAdSlot['type']);
+        // round_robin with single patrocinio → fixed strategy from allocator
+        $this->assertNotEquals('sequential', $firstAdSlot['strategy']);
+        $this->assertCount(1, $firstAdSlot['candidates']);
+        $this->assertEquals($creative->id, $firstAdSlot['candidates'][0]['creative_id']);
+    }
 }

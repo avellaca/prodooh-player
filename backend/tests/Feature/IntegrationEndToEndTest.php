@@ -71,7 +71,6 @@ class IntegrationEndToEndTest extends TestCase
             'ends_at' => now()->addDays(20),
             'target_spots' => 100,
             'delivery_pace' => 'uniform',
-            'share_weight' => 5,
         ]);
 
         $line2 = OrderLine::factory()->create([
@@ -82,7 +81,6 @@ class IntegrationEndToEndTest extends TestCase
             'ends_at' => now()->addDays(20),
             'target_spots' => 200,
             'delivery_pace' => 'uniform',
-            'share_weight' => 3,
         ]);
 
         // Create targets pointing to the screen
@@ -274,7 +272,6 @@ class IntegrationEndToEndTest extends TestCase
             'ends_at' => now()->addDays(10),
             'target_spots' => 100,
             'delivery_pace' => 'uniform',
-            'share_weight' => 5,
         ]);
 
         $content = Content::factory()->create(['tenant_id' => $tenant->id]);
@@ -369,7 +366,6 @@ class IntegrationEndToEndTest extends TestCase
             'ends_at' => now()->addDays(20),
             'target_spots' => 500,
             'delivery_pace' => 'uniform',
-            'share_weight' => 5,
         ]);
 
         $content = Content::factory()->create(['tenant_id' => $tenant->id]);

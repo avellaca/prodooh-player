@@ -27,7 +27,6 @@ function buildValidOrderLineBase() {
     active_dates: ['2025-01-01'],
     spots_mode: 'spots_por_linea' as const,
     spots_input: 10,
-    share_weight: 1,
     status: 'draft' as const,
   };
 }

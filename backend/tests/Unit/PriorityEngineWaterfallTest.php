@@ -82,7 +82,6 @@ class PriorityEngineWaterfallTest extends TestCase
             'ends_at' => '2026-08-31',
             'target_spots' => 100,
             'delivery_pace' => 'uniform',
-            'share_weight' => 100,
             'status' => 'active',
         ];
 
@@ -140,12 +139,10 @@ class PriorityEngineWaterfallTest extends TestCase
         $line1 = $this->createOrderLine([
             'name' => 'Line 1',
             'target_spots' => 310, // ceil(310/31) = 10
-            'share_weight' => 100,
         ]);
         $line2 = $this->createOrderLine([
             'name' => 'Line 2',
             'target_spots' => 620, // ceil(620/31) = 20
-            'share_weight' => 200,
         ]);
 
         $lines = collect([$line1, $line2]);
@@ -169,23 +166,22 @@ class PriorityEngineWaterfallTest extends TestCase
         $line1 = $this->createOrderLine([
             'name' => 'Line 1',
             'target_spots' => 3100, // ceil(3100/31) = 100
-            'share_weight' => 75,
         ]);
         $line2 = $this->createOrderLine([
             'name' => 'Line 2',
             'target_spots' => 3100, // ceil(3100/31) = 100
-            'share_weight' => 25,
         ]);
 
         $lines = collect([$line1, $line2]);
-        // Demand = 200, capacity = 40 → over-capacity
+        // Demand = 200, capacity = 40 → over-capacity (all uniform)
         $result = $this->engine->allocateLevel($lines, 40);
 
-        // Proportional: line1 = floor(40 * 75/100) = 30, line2 = floor(40 * 25/100) = 10
+        // allocateWithCaps: uniform lines get min(budget, remaining) sequentially
+        // line1: min(100, 40) = 40, line2: min(100, 0) = 0
         $this->assertCount(2, $result['allocations']);
-        $this->assertEquals(30, $result['allocations'][0]['count']);
-        $this->assertEquals(10, $result['allocations'][1]['count']);
-        $this->assertEquals(0, $result['remaining']); // 40 - 30 - 10 = 0
+        $this->assertEquals(40, $result['allocations'][0]['count']);
+        $this->assertEquals(0, $result['allocations'][1]['count']);
+        $this->assertEquals(0, $result['remaining']); // 40 - 40 - 0 = 0
 
         Carbon::setTestNow();
     }
@@ -199,12 +195,10 @@ class PriorityEngineWaterfallTest extends TestCase
         $line1 = $this->createOrderLine([
             'name' => 'Fixed Line',
             'target_spots' => 310, // ceil(310/31) = 10
-            'share_weight' => 50,
         ]);
         $line2 = $this->createOrderLine([
             'name' => 'Unlimited Line',
             'target_spots' => null, // unlimited
-            'share_weight' => 50,
         ]);
 
         $lines = collect([$line1, $line2]);
@@ -255,19 +249,16 @@ class PriorityEngineWaterfallTest extends TestCase
             'name' => 'Patrocinio Line',
             'priority_tier' => 'patrocinio',
             'target_spots' => 620, // budget = 20
-            'share_weight' => 100,
         ]);
         $estandar = $this->createOrderLine([
             'name' => 'Estandar Line',
             'priority_tier' => 'estandar',
             'target_spots' => 930, // budget = 30
-            'share_weight' => 100,
         ]);
         $redInterna = $this->createOrderLine([
             'name' => 'Red Interna Line',
             'priority_tier' => 'red_interna',
             'target_spots' => 310, // budget = 10
-            'share_weight' => 100,
         ]);
 
         $lines = collect([$patrocinio, $estandar, $redInterna]);
@@ -300,13 +291,11 @@ class PriorityEngineWaterfallTest extends TestCase
             'name' => 'High Patrocinio',
             'priority_tier' => 'patrocinio',
             'target_spots' => 15500, // budget = 500
-            'share_weight' => 100,
         ]);
         $estandar = $this->createOrderLine([
             'name' => 'Estandar Line',
             'priority_tier' => 'estandar',
             'target_spots' => 620, // budget = 20
-            'share_weight' => 100,
         ]);
 
         $lines = collect([$patrocinio, $estandar]);
@@ -341,7 +330,6 @@ class PriorityEngineWaterfallTest extends TestCase
             'name' => 'Line',
             'priority_tier' => 'patrocinio',
             'target_spots' => 310, // budget = 10
-            'share_weight' => 100,
         ]);
 
         $lines = collect([$line]);
@@ -356,7 +344,7 @@ class PriorityEngineWaterfallTest extends TestCase
         Carbon::setTestNow();
     }
 
-    public function test_waterfall_over_capacity_proportional_share_weight(): void
+    public function test_waterfall_over_capacity_proportional_equal_weight(): void
     {
         $this->createBaseData();
         Carbon::setTestNow(Carbon::parse('2026-08-01'));
@@ -366,24 +354,22 @@ class PriorityEngineWaterfallTest extends TestCase
             'name' => 'Pat 1',
             'priority_tier' => 'patrocinio',
             'target_spots' => 3100, // budget = 100
-            'share_weight' => 60,
         ]);
         $line2 = $this->createOrderLine([
             'name' => 'Pat 2',
             'priority_tier' => 'patrocinio',
             'target_spots' => 3100, // budget = 100
-            'share_weight' => 40,
         ]);
 
         $lines = collect([$line1, $line2]);
-        // Total demand = 200, capacity = 50 → proportional
+        // Total demand = 200, capacity = 50 → over-capacity (all uniform)
         $result = $this->engine->runWaterfall($lines, 50);
 
-        // line1: floor(50 * 60/100) = 30
-        // line2: floor(50 * 40/100) = 20
-        $this->assertEquals(30, $result['allocations'][0]['count']);
-        $this->assertEquals(20, $result['allocations'][1]['count']);
-        // Remaining: 50 - 30 - 20 = 0
+        // allocateWithCaps: uniform lines get min(budget, remaining) sequentially
+        // line1: min(100, 50) = 50, line2: min(100, 0) = 0
+        $this->assertEquals(50, $result['allocations'][0]['count']);
+        $this->assertEquals(0, $result['allocations'][1]['count']);
+        // Remaining: 50 - 50 - 0 = 0
         $this->assertEquals(0, $result['ssp_slots']);
         $this->assertEquals(0, $result['playlist_slots']);
 
@@ -413,7 +399,6 @@ class PriorityEngineWaterfallTest extends TestCase
             'ends_at' => '2026-08-31',
             'target_spots' => 100,
             'delivery_pace' => 'uniform',
-            'share_weight' => 100,
             'status' => 'active',
         ]);
 
@@ -463,7 +448,6 @@ class PriorityEngineWaterfallTest extends TestCase
             'ends_at' => '2026-08-31',
             'target_spots' => 100,
             'delivery_pace' => 'uniform',
-            'share_weight' => 100,
             'status' => 'active',
         ]);
 

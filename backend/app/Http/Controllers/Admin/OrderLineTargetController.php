@@ -10,6 +10,7 @@ use App\Models\ScreenGroup;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class OrderLineTargetController extends Controller
@@ -170,6 +171,34 @@ class OrderLineTargetController extends Controller
                 }
             }
         }
+    }
+
+    /**
+     * Update an order line target (e.g. playback_mode_override).
+     *
+     * PUT /api/admin/order-line-targets/{id}
+     */
+    public function update(Request $request, string $id): JsonResponse
+    {
+        if (!Str::isUuid($id)) {
+            return response()->json(['message' => 'Order line target not found.'], 404);
+        }
+
+        $target = OrderLineTarget::find($id);
+
+        if (!$target) {
+            return response()->json(['message' => 'Order line target not found.'], 404);
+        }
+
+        $validated = $request->validate([
+            'playback_mode_override' => ['sometimes', 'nullable', Rule::in(['round_robin', 'sequential'])],
+        ]);
+
+        $target->update($validated);
+
+        $target->load(['screen', 'screenGroup', 'orderLine']);
+
+        return response()->json(['data' => $target]);
     }
 
     /**

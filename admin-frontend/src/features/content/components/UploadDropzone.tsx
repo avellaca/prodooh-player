@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { Upload } from "lucide-react";
+import { Upload, X, FileImage, Film } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { useUploadContent } from "../hooks";
+import { Badge } from "@/components/ui/badge";
+import { BulkTagAssign } from "./BulkTagAssign";
+import { useBulkUpload } from "../hooks";
 import { cn } from "@/lib/utils";
 
 interface UploadDropzoneProps {
@@ -11,43 +13,59 @@ interface UploadDropzoneProps {
   disabledTooltip?: string;
 }
 
+type Phase = "idle" | "review" | "uploading";
+
 export function UploadDropzone({ onUploadSuccess, disabled = false, disabledTooltip }: UploadDropzoneProps) {
   const [isDragOver, setIsDragOver] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
-  const [uploadCount, setUploadCount] = useState({ current: 0, total: 0 });
-  const uploadContent = useUploadContent();
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  const bulkUpload = useBulkUpload();
 
   function handleFiles(files: File[]) {
     if (files.length === 0) return;
-    setUploadCount({ current: 0, total: files.length });
-    uploadSequential(files, 0);
+    setSelectedFiles(files);
+    setSelectedTagIds([]);
+    setPhase("review");
   }
 
-  function uploadSequential(files: File[], index: number) {
-    if (index >= files.length) {
-      setUploadProgress(null);
-      setUploadCount({ current: 0, total: 0 });
-      onUploadSuccess();
-      return;
-    }
+  function handleRemoveFile(index: number) {
+    setSelectedFiles((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      if (next.length === 0) {
+        setPhase("idle");
+      }
+      return next;
+    });
+  }
 
-    setUploadCount((prev) => ({ ...prev, current: index + 1 }));
+  function handleCancel() {
+    setSelectedFiles([]);
+    setSelectedTagIds([]);
+    setPhase("idle");
+  }
+
+  function handleConfirmUpload() {
+    setPhase("uploading");
     setUploadProgress(0);
 
-    uploadContent.mutate(
+    bulkUpload.mutate(
       {
-        file: files[index],
-        options: {
-          onUploadProgress: (percent) => setUploadProgress(percent),
-        },
+        files: selectedFiles,
+        tagIds: selectedTagIds,
+        onUploadProgress: setUploadProgress,
       },
       {
         onSuccess: () => {
-          uploadSequential(files, index + 1);
+          setPhase("idle");
+          setSelectedFiles([]);
+          setSelectedTagIds([]);
+          onUploadSuccess();
         },
         onError: () => {
-          setUploadProgress(null);
-          setUploadCount({ current: 0, total: 0 });
+          setPhase("review");
         },
       },
     );
@@ -66,7 +84,7 @@ export function UploadDropzone({ onUploadSuccess, disabled = false, disabledTool
   function handleDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
     setIsDragOver(false);
-    if (disabled) return;
+    if (disabled || phase !== "idle") return;
     const files = Array.from(e.dataTransfer.files);
     handleFiles(files);
   }
@@ -77,8 +95,81 @@ export function UploadDropzone({ onUploadSuccess, disabled = false, disabledTool
     e.target.value = "";
   }
 
-  const isDisabled = disabled || uploadContent.isPending;
+  const isDisabled = disabled || phase === "uploading";
 
+  // ─── Uploading phase ───────────────────────────────────────────────────────
+  if (phase === "uploading") {
+    return (
+      <div className="flex flex-col items-center gap-3 rounded-lg border-2 border-dashed border-primary/30 p-6">
+        <Upload className="h-8 w-8 animate-pulse text-primary" />
+        <p className="text-sm text-muted-foreground">
+          Subiendo {selectedFiles.length} archivo{selectedFiles.length > 1 ? "s" : ""}...
+        </p>
+        <div className="w-full max-w-xs">
+          <div className="h-2.5 w-full overflow-hidden rounded-full bg-secondary">
+            <div
+              className="h-full bg-primary transition-all duration-300"
+              style={{ width: `${uploadProgress}%` }}
+            />
+          </div>
+          <p className="mt-1 text-center text-xs text-muted-foreground">{uploadProgress}%</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Review phase (files selected, assign tags before upload) ──────────────
+  if (phase === "review") {
+    return (
+      <div className="space-y-4 rounded-lg border-2 border-dashed border-primary/30 p-4">
+        {/* File list */}
+        <div className="space-y-1">
+          <p className="text-sm font-medium">
+            {selectedFiles.length} archivo{selectedFiles.length > 1 ? "s" : ""} seleccionado{selectedFiles.length > 1 ? "s" : ""}
+          </p>
+          <ul className="max-h-32 space-y-1 overflow-y-auto rounded border p-2 text-sm">
+            {selectedFiles.map((file, i) => (
+              <li key={`${file.name}-${i}`} className="flex items-center gap-2">
+                {file.type.startsWith("video/") ? (
+                  <Film className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                ) : (
+                  <FileImage className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                )}
+                <span className="flex-1 truncate">{file.name}</span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveFile(i)}
+                  className="shrink-0 text-muted-foreground hover:text-destructive"
+                  aria-label={`Remover ${file.name}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Tag assignment */}
+        <BulkTagAssign
+          selectedTagIds={selectedTagIds}
+          onTagsChange={setSelectedTagIds}
+        />
+
+        {/* Actions */}
+        <div className="flex items-center justify-between">
+          <Button variant="ghost" size="sm" onClick={handleCancel}>
+            Cancelar
+          </Button>
+          <Button size="sm" onClick={handleConfirmUpload}>
+            <Upload className="mr-1.5 h-3.5 w-3.5" />
+            Subir{selectedFiles.length > 1 ? ` (${selectedFiles.length})` : ""}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Idle phase (dropzone) ─────────────────────────────────────────────────
   return (
     <div
       onDragOver={!disabled ? handleDragOver : undefined}
@@ -115,25 +206,6 @@ export function UploadDropzone({ onUploadSuccess, disabled = false, disabledTool
         multiple
         onChange={handleFileSelect}
       />
-
-      {uploadProgress !== null && (
-        <div className="mt-2 w-full max-w-xs">
-          {uploadCount.total > 1 && (
-            <p className="mb-1 text-center text-xs text-muted-foreground">
-              Archivo {uploadCount.current} de {uploadCount.total}
-            </p>
-          )}
-          <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
-            <div
-              className="h-full bg-primary transition-all duration-200"
-              style={{ width: `${uploadProgress}%` }}
-            />
-          </div>
-          <p className="mt-1 text-center text-xs text-muted-foreground">
-            {uploadProgress}%
-          </p>
-        </div>
-      )}
     </div>
   );
 }

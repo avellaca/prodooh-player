@@ -71,7 +71,6 @@ class AvailabilityAnalyzerTest extends TestCase
             'starts_at' => now()->subDay(),
             'ends_at' => now()->addDays(30),
             'target_spots' => 1000,
-            'share_weight' => 1,
         ], $lineOverrides));
 
         OrderLineTarget::factory()->create([
@@ -102,7 +101,6 @@ class AvailabilityAnalyzerTest extends TestCase
             'starts_at' => now()->subDay(),
             'ends_at' => now()->addDays(30),
             'target_spots' => 2000,
-            'share_weight' => 1,
         ]);
 
         OrderLineTarget::factory()->create([
@@ -136,7 +134,6 @@ class AvailabilityAnalyzerTest extends TestCase
             'starts_at' => now()->subDay(),
             'ends_at' => now()->addDays(30),
             'target_spots' => 5000, // exceeds 4032 capacity
-            'share_weight' => 1,
         ]);
 
         OrderLineTarget::factory()->create([
@@ -180,7 +177,6 @@ class AvailabilityAnalyzerTest extends TestCase
             'starts_at' => now()->subDay(),
             'ends_at' => now()->addDays(30),
             'target_spots' => 3456,
-            'share_weight' => 1,
         ]);
 
         OrderLineTarget::factory()->create([
@@ -222,7 +218,6 @@ class AvailabilityAnalyzerTest extends TestCase
             'starts_at' => now()->subDay(),
             'ends_at' => now()->addDays(30),
             'target_spots' => 2304,
-            'share_weight' => 1,
         ]);
 
         OrderLineTarget::factory()->create([
@@ -257,7 +252,6 @@ class AvailabilityAnalyzerTest extends TestCase
             'starts_at' => now()->subDay(),
             'ends_at' => now()->addDays(30),
             'target_spots' => 7000,
-            'share_weight' => 1,
         ]);
 
         // Target both screens
@@ -294,7 +288,6 @@ class AvailabilityAnalyzerTest extends TestCase
             'starts_at' => now()->subDay(),
             'ends_at' => now()->addDays(30),
             'target_spots' => 1000,
-            'share_weight' => 1,
         ]);
 
         $result = $this->analyzer->analyze($line);
@@ -322,7 +315,6 @@ class AvailabilityAnalyzerTest extends TestCase
             'starts_at' => now()->subDay(),
             'ends_at' => now()->addDays(30),
             'target_spots' => 2016,
-            'share_weight' => 1,
         ]);
 
         OrderLineTarget::factory()->create([
@@ -367,7 +359,6 @@ class AvailabilityAnalyzerTest extends TestCase
             'starts_at' => now()->subDay(),
             'ends_at' => now()->addDays(30),
             'target_spots' => 5000,
-            'share_weight' => 1,
         ]);
 
         // Target via screen group
@@ -402,7 +393,6 @@ class AvailabilityAnalyzerTest extends TestCase
             'starts_at' => now()->subDay(),
             'ends_at' => now()->addDays(30),
             'target_spots' => 4032,
-            'share_weight' => 1,
         ]);
 
         OrderLineTarget::factory()->create([
@@ -442,7 +432,6 @@ class AvailabilityAnalyzerTest extends TestCase
             'starts_at' => now()->subDay(),
             'ends_at' => now()->addDays(30),
             'target_spots' => 4000,
-            'share_weight' => 1,
         ]);
 
         OrderLineTarget::factory()->create([
@@ -474,7 +463,6 @@ class AvailabilityAnalyzerTest extends TestCase
             'starts_at' => now()->subDay(),
             'ends_at' => now()->addDays(30),
             'target_spots' => 100,
-            'share_weight' => 1,
         ]);
 
         OrderLineTarget::factory()->create([

@@ -8,7 +8,11 @@ import {
   targetsApi,
   resolutionsApi,
   bulkCreativesApi,
+  bulkAssignApi,
   contentApi,
+  trackingPixelsApi,
+  loopPreviewApi,
+  copyCreativesApi,
 } from './api';
 import type {
   CreateOrderInput,
@@ -18,9 +22,11 @@ import type {
   CreateCreativeInput,
   UpdateCreativeInput,
   CreateTargetInput,
+  UpdateTargetInput,
   ActivateOrderLineResponse,
+  BulkAssignInput,
 } from './api';
-import type { BulkCreativeInput } from './types';
+import type { BulkCreativeInput, PlaybackMode, TrackableType, TrackingPixelInput } from './types';
 
 // ─── Orders ──────────────────────────────────────────────────────────────────
 
@@ -314,5 +320,168 @@ export function useContentByResolution(width?: number, height?: number) {
     queryKey: ['content', { width, height }],
     queryFn: () => contentApi.list({ width, height }),
     enabled: !!width && !!height,
+  });
+}
+
+// ─── All Content (for LibrarySelectorModal) ──────────────────────────────────
+
+export function useAllContent() {
+  return useQuery({
+    queryKey: ['content'],
+    queryFn: () => contentApi.listAll(),
+  });
+}
+
+// ─── Bulk Assign (Auto-Matching by Resolution) ──────────────────────────────
+
+export function useBulkAssign(orderLineId: string) {
+  return useMutation({
+    mutationFn: (data: BulkAssignInput) => bulkAssignApi.assign(orderLineId, data),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['order-lines', orderLineId, 'resolutions'] });
+      queryClient.invalidateQueries({ queryKey: ['targets'] });
+      queryClient.invalidateQueries({ queryKey: ['content'] });
+      const msg = `${result.created} creativo(s) asignado(s)`;
+      if (result.unmatched_contents.length > 0) {
+        toast.warning(`${msg}. ${result.unmatched_contents.length} archivo(s) sin coincidencia de resolución.`);
+      } else {
+        toast.success(msg);
+      }
+    },
+    onError: (error: Error & { response?: { data?: { message?: string } } }) => {
+      toast.error(error.response?.data?.message ?? 'Error en asignación masiva');
+    },
+  });
+}
+
+// ─── Reorder Creatives (Drag & Drop) ─────────────────────────────────────────
+
+export function useReorderCreatives(targetId: string, orderLineId: string) {
+  return useMutation({
+    mutationFn: (creativeIds: string[]) => creativesApi.reorder(targetId, creativeIds),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['targets', targetId, 'creatives'] });
+      queryClient.invalidateQueries({ queryKey: ['order-lines', orderLineId, 'resolutions'] });
+    },
+    onError: (error: Error & { response?: { data?: { message?: string } } }) => {
+      // Revert optimistic update on error by invalidating
+      queryClient.invalidateQueries({ queryKey: ['targets', targetId, 'creatives'] });
+      toast.error(error.response?.data?.message ?? 'Error al reordenar creativos');
+    },
+  });
+}
+
+// ─── Playback Mode ───────────────────────────────────────────────────────────
+
+export function useUpdatePlaybackMode(orderLineId: string) {
+  return useMutation({
+    mutationFn: (playbackMode: PlaybackMode) =>
+      orderLinesApi.update(orderLineId, { playback_mode: playbackMode }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['order-lines', orderLineId] });
+      toast.success('Modo de reproducción actualizado');
+    },
+    onError: (error: Error & { response?: { data?: { message?: string } } }) => {
+      toast.error(error.response?.data?.message ?? 'Error al actualizar modo de reproducción');
+    },
+  });
+}
+
+export function useUpdateTargetPlaybackMode(orderLineId: string) {
+  return useMutation({
+    mutationFn: ({ targetId, playbackModeOverride }: { targetId: string; playbackModeOverride: PlaybackMode | null }) =>
+      targetsApi.update(targetId, { playback_mode_override: playbackModeOverride }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['order-lines', orderLineId, 'targets'] });
+      queryClient.invalidateQueries({ queryKey: ['order-lines', orderLineId] });
+      toast.success('Override de modo actualizado');
+    },
+    onError: (error: Error & { response?: { data?: { message?: string } } }) => {
+      toast.error(error.response?.data?.message ?? 'Error al actualizar override');
+    },
+  });
+}
+
+
+// ─── Tracking Pixels ─────────────────────────────────────────────────────────
+
+export function useTrackingPixels(trackableType: TrackableType, trackableId: string | undefined) {
+  return useQuery({
+    queryKey: ['tracking-pixels', trackableType, trackableId],
+    queryFn: () => trackingPixelsApi.list(trackableType, trackableId!),
+    enabled: !!trackableId,
+  });
+}
+
+export function useCreateTrackingPixel(trackableType: TrackableType, trackableId: string) {
+  return useMutation({
+    mutationFn: (data: TrackingPixelInput) => trackingPixelsApi.create(trackableType, trackableId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tracking-pixels', trackableType, trackableId] });
+      toast.success('Tracking pixel creado');
+    },
+    onError: (error: Error & { response?: { data?: { message?: string } } }) => {
+      toast.error(error.response?.data?.message ?? 'Error al crear tracking pixel');
+    },
+  });
+}
+
+export function useUpdateTrackingPixel(trackableType: TrackableType, trackableId: string) {
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<TrackingPixelInput> }) =>
+      trackingPixelsApi.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tracking-pixels', trackableType, trackableId] });
+      toast.success('Tracking pixel actualizado');
+    },
+    onError: (error: Error & { response?: { data?: { message?: string } } }) => {
+      toast.error(error.response?.data?.message ?? 'Error al actualizar tracking pixel');
+    },
+  });
+}
+
+export function useDeleteTrackingPixel(trackableType: TrackableType, trackableId: string) {
+  return useMutation({
+    mutationFn: (id: string) => trackingPixelsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tracking-pixels', trackableType, trackableId] });
+      toast.success('Tracking pixel eliminado');
+    },
+    onError: (error: Error & { response?: { data?: { message?: string } } }) => {
+      toast.error(error.response?.data?.message ?? 'Error al eliminar tracking pixel');
+    },
+  });
+}
+
+
+// ─── Loop Preview ────────────────────────────────────────────────────────────
+
+export function useLoopPreview(screenId: string | undefined) {
+  return useQuery({
+    queryKey: ['loop-preview', screenId],
+    queryFn: () => loopPreviewApi.get(screenId!),
+    enabled: !!screenId,
+  });
+}
+
+// ─── Copy Creatives ──────────────────────────────────────────────────────────
+
+export function useCopyCreatives(sourceOrderLineId: string) {
+  return useMutation({
+    mutationFn: (targetOrderLineId: string) =>
+      copyCreativesApi.copy(sourceOrderLineId, targetOrderLineId),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['order-lines', sourceOrderLineId, 'resolutions'] });
+      queryClient.invalidateQueries({ queryKey: ['targets'] });
+      const msg = `${result.created} creativo(s) copiado(s)`;
+      if (result.skipped > 0) {
+        toast.warning(`${msg}. ${result.skipped} omitido(s) por falta de coincidencia de resolución.`);
+      } else {
+        toast.success(msg);
+      }
+    },
+    onError: (error: Error & { response?: { data?: { message?: string } } }) => {
+      toast.error(error.response?.data?.message ?? 'Error al copiar creativos');
+    },
   });
 }

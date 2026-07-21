@@ -85,7 +85,6 @@ class OrderDerivedDatesPropertyTest extends TestCase
                     'starts_at' => $lineStartsAt->toDateString(),
                     'ends_at' => $lineEndsAt->toDateString(),
                     'delivery_pace' => 'uniform',
-                    'share_weight' => 1,
                     'status' => 'draft',
                 ]);
             });
@@ -147,7 +146,6 @@ class OrderDerivedDatesPropertyTest extends TestCase
                         'starts_at' => $lineStartsAt->toDateString(),
                         'ends_at' => $lineEndsAt->toDateString(),
                         'delivery_pace' => 'uniform',
-                        'share_weight' => 1,
                         'status' => 'draft',
                     ]);
                 });
@@ -221,7 +219,6 @@ class OrderDerivedDatesPropertyTest extends TestCase
                         'starts_at' => $lineStartsAt->toDateString(),
                         'ends_at' => $lineEndsAt->toDateString(),
                         'delivery_pace' => 'uniform',
-                        'share_weight' => 1,
                         'status' => 'draft',
                     ]);
                 });

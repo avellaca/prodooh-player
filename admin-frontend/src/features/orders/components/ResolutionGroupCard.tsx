@@ -17,18 +17,21 @@ import { DirectUploadDialog } from './DirectUploadDialog';
 import { ScreenCreativeList } from './ScreenCreativeList';
 import { useTargetCreatives, useBulkCreateByResolution } from '../hooks';
 import type { ResolutionGroup } from '../types';
+import type { PlaybackMode } from '../types';
 
 const MAX_THUMBNAILS = 4;
 
 interface ResolutionGroupCardProps {
   group: ResolutionGroup;
   orderLineId: string;
+  playbackMode?: PlaybackMode;
   onCreativeAdded: () => void;
 }
 
 export function ResolutionGroupCard({
   group,
   orderLineId,
+  playbackMode = 'round_robin',
   onCreativeAdded,
 }: ResolutionGroupCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -165,6 +168,7 @@ export function ResolutionGroupCard({
                 orderLineId={orderLineId}
                 resolutionWidth={group.resolution_width}
                 resolutionHeight={group.resolution_height}
+                playbackMode={playbackMode}
               />
             </div>
           )}

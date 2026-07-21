@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOneThrough;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class Creative extends Model
 {
@@ -23,6 +24,7 @@ class Creative extends Model
         'weight',
         'resolution_width',
         'resolution_height',
+        'position',
     ];
 
     protected function casts(): array
@@ -59,5 +61,10 @@ class Creative extends Model
     public function impressions(): HasMany
     {
         return $this->hasMany(Impression::class);
+    }
+
+    public function trackingPixels(): MorphMany
+    {
+        return $this->morphMany(TrackingPixel::class, 'trackable');
     }
 }

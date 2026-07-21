@@ -28,7 +28,6 @@ class OrderLineFactory extends Factory
             'ends_at' => now()->addDays(20),
             'target_spots' => fake()->optional()->numberBetween(100, 10000),
             'delivery_pace' => fake()->randomElement(['uniform', 'asap']),
-            'share_weight' => fake()->numberBetween(1, 10),
             'time_window' => null,
             'status' => 'active',
         ];

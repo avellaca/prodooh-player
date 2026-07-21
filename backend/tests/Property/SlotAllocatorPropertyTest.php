@@ -34,7 +34,6 @@ class SlotAllocatorPropertyTest extends TestCase
             'id' => $id,
             'priority_tier' => $tier,
             'slots_purchased' => $slotsPurchased,
-            'share_weight' => $shareWeight,
         ];
     }
 
@@ -43,8 +42,7 @@ class SlotAllocatorPropertyTest extends TestCase
         $lines = [];
         for ($i = 0; $i < $count; $i++) {
             $slotsPurchased = ($tier === 'patrocinio') ? random_int($minSlots, $maxSlots) : 1;
-            $shareWeight = random_int($minWeight, $maxWeight);
-            $lines[] = $this->makeLine("{$tier}-{$i}", $tier, $slotsPurchased, $shareWeight);
+            $lines[] = $this->makeLine("{$tier}-{$i}", $tier, $slotsPurchased);
         }
 
         return collect($lines);
@@ -449,29 +447,28 @@ class SlotAllocatorPropertyTest extends TestCase
         }
     }
 
-    // ─── Property 9: Red_Interna proportional distribution by share_weight ──
+    // ─── Property 9: Red_Interna equal distribution (all weight=1) ─────────
 
     /**
-     * Property 9a: Red_Interna slots are distributed proportionally to share_weight.
+     * Property 9a: Red_Interna slots are distributed equally across lines.
      *
-     * For any set of Red_Interna lines with random share_weights filling available slots,
-     * the number of slots each line receives must be proportional to its share_weight
+     * Since share_weight has been removed, all lines effectively have weight=1.
+     * For any set of Red_Interna lines, slots are distributed as evenly as possible
      * (within rounding tolerance of ±1 slot due to integer distribution).
      *
      * **Validates: Requirements 2.10**
      */
-    public function test_red_interna_proportional_distribution_by_share_weight(): void
+    public function test_red_interna_equal_distribution(): void
     {
         for ($i = 0; $i < 100; $i++) {
             // Generate enough slots so distribution is meaningful
             $adSlots = random_int(4, 20);
             $redInternaCount = random_int(2, min(4, $adSlots));
 
-            // Create lines with distinct share_weights
+            // Create lines (all have equal weight=1 via ?? 1 fallback)
             $lines = collect();
             for ($j = 0; $j < $redInternaCount; $j++) {
-                $weight = random_int(1, 10);
-                $lines->push($this->makeLine("red_interna-{$j}", 'red_interna', 1, $weight));
+                $lines->push($this->makeLine("red_interna-{$j}", 'red_interna'));
             }
 
             // Only Red_Interna — they get all ad_slots
@@ -484,7 +481,6 @@ class SlotAllocatorPropertyTest extends TestCase
             }
 
             foreach ($assignments as $assignment) {
-                // For fixed strategy, count the single candidate
                 if ($assignment->strategy === 'fixed') {
                     $id = $assignment->candidates[0]['order_line_id'] ?? '';
                     if (isset($slotCounts[$id])) {
@@ -493,26 +489,21 @@ class SlotAllocatorPropertyTest extends TestCase
                 }
             }
 
-            // Verify proportionality within rounding tolerance
-            $totalWeight = $lines->sum(fn ($l) => $l['share_weight']);
-            $totalAssigned = array_sum($slotCounts);
+            // Verify equal distribution: each line gets floor(slots/lines) or ceil(slots/lines)
+            $expectedMin = (int) floor($adSlots / $redInternaCount);
+            $expectedMax = (int) ceil($adSlots / $redInternaCount);
 
             foreach ($lines as $line) {
-                $expectedExact = ($line['share_weight'] / $totalWeight) * $totalAssigned;
                 $actual = $slotCounts[$line['id']];
-
-                // Allow ±1 slot tolerance for integer rounding (largest remainder method)
                 $this->assertGreaterThanOrEqual(
-                    floor($expectedExact) - 1,
+                    $expectedMin,
                     $actual,
-                    "Property 9a (iter {$i}): Line '{$line['id']}' (weight={$line['share_weight']}) got {$actual} slots, " .
-                    "expected ~" . round($expectedExact, 2) . " (floor-1=" . (floor($expectedExact) - 1) . ")"
+                    "Property 9a (iter {$i}): Line '{$line['id']}' got {$actual} slots, expected at least {$expectedMin}"
                 );
                 $this->assertLessThanOrEqual(
-                    ceil($expectedExact) + 1,
+                    $expectedMax,
                     $actual,
-                    "Property 9a (iter {$i}): Line '{$line['id']}' (weight={$line['share_weight']}) got {$actual} slots, " .
-                    "expected ~" . round($expectedExact, 2) . " (ceil+1=" . (ceil($expectedExact) + 1) . ")"
+                    "Property 9a (iter {$i}): Line '{$line['id']}' got {$actual} slots, expected at most {$expectedMax}"
                 );
             }
         }
@@ -533,8 +524,7 @@ class SlotAllocatorPropertyTest extends TestCase
             $redInternaCount = random_int(1, min($adSlots, 5));
             $lines = collect();
             for ($j = 0; $j < $redInternaCount; $j++) {
-                $weight = random_int(1, 10);
-                $lines->push($this->makeLine("red_interna-{$j}", 'red_interna', 1, $weight));
+                $lines->push($this->makeLine("red_interna-{$j}", 'red_interna'));
             }
 
             $assignments = $this->allocator->allocate($lines, $adSlots, 576);
@@ -548,48 +538,44 @@ class SlotAllocatorPropertyTest extends TestCase
     }
 
     /**
-     * Property 9c: Higher share_weight lines get equal or more slots than lower weight lines.
+     * Property 9c: All Red_Interna lines get equal slots (no weight differentiation).
      *
-     * For any two Red_Interna lines where weight_A > weight_B, line A must receive
-     * >= slots than line B (within the constraints of integer rounding).
+     * Since share_weight is removed, any two Red_Interna lines should receive
+     * the same number of slots (within ±1 for rounding).
      *
      * **Validates: Requirements 2.10**
      */
-    public function test_higher_share_weight_gets_more_or_equal_slots(): void
+    public function test_red_interna_lines_get_equal_slots(): void
     {
         for ($i = 0; $i < 100; $i++) {
             $adSlots = random_int(4, 20);
 
-            // Create exactly 2 lines with different weights
-            $weightA = random_int(5, 10);
-            $weightB = random_int(1, 4);  // Always less than A
-
             $lines = collect([
-                $this->makeLine('red_interna-high', 'red_interna', 1, $weightA),
-                $this->makeLine('red_interna-low', 'red_interna', 1, $weightB),
+                $this->makeLine('red_interna-a', 'red_interna'),
+                $this->makeLine('red_interna-b', 'red_interna'),
             ]);
 
             $assignments = $this->allocator->allocate($lines, $adSlots, 576);
 
             // Count slots for each
-            $highCount = 0;
-            $lowCount = 0;
+            $countA = 0;
+            $countB = 0;
             foreach ($assignments as $assignment) {
                 if ($assignment->strategy === 'fixed') {
                     $id = $assignment->candidates[0]['order_line_id'] ?? '';
-                    if ($id === 'red_interna-high') {
-                        $highCount++;
-                    } elseif ($id === 'red_interna-low') {
-                        $lowCount++;
+                    if ($id === 'red_interna-a') {
+                        $countA++;
+                    } elseif ($id === 'red_interna-b') {
+                        $countB++;
                     }
                 }
             }
 
-            $this->assertGreaterThanOrEqual(
-                $lowCount,
-                $highCount,
-                "Property 9c (iter {$i}): Line with weight {$weightA} got {$highCount} slots, " .
-                "line with weight {$weightB} got {$lowCount} slots. Higher weight should get >= slots."
+            // With equal weight, difference should be at most 1
+            $this->assertLessThanOrEqual(
+                1,
+                abs($countA - $countB),
+                "Property 9c (iter {$i}): Lines should have equal slots (±1). Got A={$countA}, B={$countB}."
             );
         }
     }

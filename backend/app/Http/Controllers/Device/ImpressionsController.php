@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Device;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\FireTrackingPixelJob;
 use App\Jobs\RecalculateManifestJob;
+use App\Models\Creative;
 use App\Models\Impression;
 use App\Models\OrderLine;
 use Illuminate\Http\JsonResponse;
@@ -33,6 +35,7 @@ class ImpressionsController extends Controller
 
         $screenId = $request->attributes->get('screen_id');
         $impressions = $request->input('impressions');
+        $createdImpressions = [];
 
         foreach ($impressions as $impression) {
             // Deduplicate: skip if same screen + order_line + started_at already exists
@@ -45,7 +48,7 @@ class ImpressionsController extends Controller
                 continue;
             }
 
-            Impression::create([
+            $created = Impression::create([
                 'screen_id' => $screenId,
                 'order_line_id' => $impression['order_line_id'],
                 'creative_id' => $impression['creative_id'] ?? null,
@@ -57,6 +60,13 @@ class ImpressionsController extends Controller
                 'failure_reason' => $impression['failure_reason'] ?? null,
                 'mode' => $impression['mode'] ?? 'normal',
             ]);
+
+            $createdImpressions[] = $created;
+        }
+
+        // Dispatch tracking pixels for each newly created impression
+        foreach ($createdImpressions as $createdImpression) {
+            $this->dispatchTrackingPixels($createdImpression);
         }
 
         // Check if any order line just reached its per-screen target → recalculate manifest
@@ -107,5 +117,47 @@ class ImpressionsController extends Controller
         ]);
 
         return response()->json(['ack' => true, 'count' => count($impressions)], 201);
+    }
+
+    /**
+     * Collect tracking pixels from Order, OrderLine, and Creative levels,
+     * filter by trigger_type 'impression', and dispatch a FireTrackingPixelJob for each.
+     */
+    private function dispatchTrackingPixels(Impression $impression): void
+    {
+        if (!$impression->creative_id) {
+            return;
+        }
+
+        $creative = Creative::find($impression->creative_id);
+        if (!$creative) {
+            return;
+        }
+
+        $orderLine = OrderLine::find($impression->order_line_id);
+        $order = $orderLine?->order;
+
+        // Collect pixels from all three levels
+        $pixels = collect();
+
+        if ($order) {
+            $pixels = $pixels->merge($order->trackingPixels);
+        }
+        if ($orderLine) {
+            $pixels = $pixels->merge($orderLine->trackingPixels);
+        }
+        $pixels = $pixels->merge($creative->trackingPixels);
+
+        // Filter by trigger_type matching the event
+        $matchingPixels = $pixels->where('trigger_type', 'impression');
+
+        foreach ($matchingPixels as $pixel) {
+            FireTrackingPixelJob::dispatch(
+                pixelUrl: $pixel->url,
+                creativeId: $creative->id,
+                impressionId: $impression->id,
+                multiplier: $pixel->multiplier,
+            );
+        }
     }
 }

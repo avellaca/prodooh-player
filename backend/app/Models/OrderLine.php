@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class OrderLine extends Model
 {
@@ -22,11 +23,11 @@ class OrderLine extends Model
         'active_dates',
         'target_spots',
         'delivery_pace',
-        'share_weight',
         'slots_purchased',
         'by_slot',
         'time_window',
         'status',
+        'playback_mode',
     ];
 
     protected function casts(): array
@@ -66,6 +67,11 @@ class OrderLine extends Model
     public function impressions()
     {
         return $this->hasMany(Impression::class);
+    }
+
+    public function trackingPixels(): MorphMany
+    {
+        return $this->morphMany(TrackingPixel::class, 'trackable');
     }
 
     /**

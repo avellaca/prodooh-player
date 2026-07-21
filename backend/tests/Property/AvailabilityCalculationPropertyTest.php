@@ -110,7 +110,6 @@ class AvailabilityCalculationPropertyTest extends TestCase
                 'starts_at' => now()->subDay(),
                 'ends_at' => now()->addDays(30),
                 'target_spots' => $targetSpots,
-                'share_weight' => 1,
             ]);
 
             OrderLineTarget::factory()->create([
@@ -193,7 +192,6 @@ class AvailabilityCalculationPropertyTest extends TestCase
                     'status' => 'active',
                     'starts_at' => now()->subDay(),
                     'ends_at' => now()->addDays(30),
-                    'share_weight' => 1,
                 ];
 
                 if ($tier === 'patrocinio') {
@@ -244,7 +242,6 @@ class AvailabilityCalculationPropertyTest extends TestCase
                 'starts_at' => now()->subDay(),
                 'ends_at' => now()->addDays(30),
                 'target_spots' => $targetSpots,
-                'share_weight' => 1,
             ]);
 
             OrderLineTarget::factory()->create([
@@ -327,7 +324,6 @@ class AvailabilityCalculationPropertyTest extends TestCase
                 'starts_at' => now()->subDay(),
                 'ends_at' => now()->addDays(30),
                 'target_spots' => $targetSpots,
-                'share_weight' => 1,
             ]);
 
             // Target all screens

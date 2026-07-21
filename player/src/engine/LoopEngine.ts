@@ -22,7 +22,7 @@ import type { SspPrefetcher } from './SspPrefetcher';
 export interface LoopSlot {
   position: number;
   type: 'ad' | 'ssp' | 'playlist';
-  strategy: 'fixed' | 'round_robin';
+  strategy: 'fixed' | 'round_robin' | 'sequential';
   candidates: SlotCandidate[];
   /** Only for SSP slots */
   provider?: string;
@@ -210,8 +210,11 @@ export class LoopEngine {
    * Selects the candidate for a slot based on its strategy and current rotation state.
    *
    * - strategy 'fixed': always returns candidates[0]
+   * - strategy 'sequential': plays candidates in array order (0, 1, 2... cycling back to 0).
+   *   Candidates come PRE-ORDERED by position from the backend.
    * - strategy 'round_robin': uses (rotation_offset mod N) where N = candidates.length
    *   The rotation offset for each slot position is incremented after each selection.
+   * - unknown strategy: falls back to round_robin behavior
    */
   selectCandidate(slot: LoopSlot): SlotCandidate {
     if (slot.candidates.length === 0) {
@@ -223,7 +226,18 @@ export class LoopEngine {
       return slot.candidates[0]!;
     }
 
-    // round_robin: use rotation offset for this slot position
+    if (slot.strategy === 'sequential') {
+      // Sequential: play candidates in array order, cycling back to 0 after last
+      const position = slot.position;
+      const offset = this.rotationOffsets.get(position) ?? 0;
+      const candidateIndex = offset % slot.candidates.length;
+      const candidate = slot.candidates[candidateIndex]!;
+      this.rotationOffsets.set(position, offset + 1);
+      return candidate;
+    }
+
+    // round_robin (default / fallback for unknown strategies):
+    // use rotation offset for this slot position
     const position = slot.position;
     const offset = this.rotationOffsets.get(position) ?? 0;
     const candidateIndex = offset % slot.candidates.length;

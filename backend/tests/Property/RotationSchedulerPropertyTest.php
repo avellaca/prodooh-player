@@ -131,35 +131,28 @@ class RotationSchedulerPropertyTest extends TestCase
     }
 
     /**
-     * Property 8c: When only ASAP lines exist (no Uniform), distribution is by share_weight
-     * without applying any ratio.
+     * Property 8c: When only ASAP lines exist (no Uniform), distribution is equal
+     * since all lines effectively have weight=1.
      *
-     * For any set of ASAP-only candidates, each line should get frequency proportional
-     * to its share_weight / total_weight (simplified fraction).
+     * For any set of ASAP-only candidates, each line should get frequency 1/N
+     * (where N is the number of ASAP lines), simplified as a fraction.
      *
      * **Validates: Requirements 2.15**
      */
-    public function test_asap_only_distributes_by_share_weight_without_ratio(): void
+    public function test_asap_only_distributes_equally_without_ratio(): void
     {
         for ($i = 0; $i < 100; $i++) {
             // Generate random number of ASAP lines (no Uniform)
             $asapCount = random_int(1, 6);
-            $totalActiveCreatives = random_int(1, 30); // Should not matter
+            $totalActiveCreatives = random_int(1, 30);
 
-            // Generate random share_weights
-            $weights = [];
             $candidates = collect();
             for ($j = 0; $j < $asapCount; $j++) {
-                $weight = random_int(1, 20);
-                $weights[] = $weight;
                 $candidates->push([
                     'order_line_id' => "asap-{$j}",
                     'delivery_pace' => 'asap',
-                    'share_weight' => $weight,
                 ]);
             }
-
-            $totalWeight = array_sum($weights);
 
             $result = $this->scheduler->calculateRotation($candidates, $totalActiveCreatives);
 
@@ -170,18 +163,17 @@ class RotationSchedulerPropertyTest extends TestCase
                 "Property 8c (iter {$i}): Should return frequency for all {$asapCount} ASAP candidates"
             );
 
-            // Verify each line's frequency is proportional to its share_weight
-            foreach ($result as $idx => $entry) {
-                $weight = $weights[$idx];
-                $gcd = $this->gcd($weight, $totalWeight);
-                $expectedNumerator = $weight / $gcd;
-                $expectedDenominator = $totalWeight / $gcd;
-                $expectedFrequency = "{$expectedNumerator}/{$expectedDenominator}";
+            // All ASAP lines get equal frequency: 1/N (simplified)
+            $gcd = $this->gcd(1, $asapCount);
+            $expectedNumerator = (int) (1 / $gcd);
+            $expectedDenominator = (int) ($asapCount / $gcd);
+            $expectedFrequency = "{$expectedNumerator}/{$expectedDenominator}";
 
+            foreach ($result as $entry) {
                 $this->assertEquals(
                     $expectedFrequency,
                     $entry['frequency'],
-                    "Property 8c (iter {$i}): ASAP-only line '{$entry['order_line_id']}' with weight={$weight} and totalWeight={$totalWeight} " .
+                    "Property 8c (iter {$i}): ASAP-only line '{$entry['order_line_id']}' " .
                     "should have frequency '{$expectedFrequency}', got '{$entry['frequency']}'"
                 );
             }
@@ -240,7 +232,6 @@ class RotationSchedulerPropertyTest extends TestCase
             $candidates->push([
                 'order_line_id' => "asap-{$j}",
                 'delivery_pace' => 'asap',
-                'share_weight' => random_int(1, 10),
             ]);
         }
 
@@ -248,7 +239,6 @@ class RotationSchedulerPropertyTest extends TestCase
             $candidates->push([
                 'order_line_id' => "uniform-{$j}",
                 'delivery_pace' => 'uniform',
-                'share_weight' => random_int(1, 10),
             ]);
         }
 

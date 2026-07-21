@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -6,29 +6,35 @@ import {
   ChevronRight,
   Plus,
   Trash2,
-  Pencil,
   Layers,
   User,
+  Radio,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { queryClient } from "@/lib/query-client";
 import { creativesApi } from "../api";
-import type { UpdateCreativeInput } from "../api";
 import { useTargetCreatives } from "../hooks";
 import { LibrarySelector } from "./LibrarySelector";
-import type { ResolutionScreen, Creative } from "../types";
+import { PlaybackModeOverrideSelector } from "./PlaybackModeOverrideSelector";
+import { InlineWeightEditor } from "./InlineWeightEditor";
+import { DragDropCreativeList } from "./DragDropCreativeList";
+import { CreativeTrackingPixelsDialog } from "./CreativeTrackingPixelsDialog";
+import { DurationWarningBadge } from "./DurationWarningBadge";
+import { LoopPreviewModal } from "./LoopPreviewModal";
+import type { ResolutionScreen, Creative, PlaybackMode } from "../types";
 
 interface ScreenCreativeListProps {
   screens: ResolutionScreen[];
   orderLineId: string;
   resolutionWidth: number;
   resolutionHeight: number;
+  playbackMode?: PlaybackMode;
+  /** Slot duration in seconds for duration warning. Defaults to 10s. */
+  slotDurationSeconds?: number;
 }
 
 export function ScreenCreativeList({
@@ -36,6 +42,8 @@ export function ScreenCreativeList({
   orderLineId,
   resolutionWidth,
   resolutionHeight,
+  playbackMode = 'round_robin',
+  slotDurationSeconds,
 }: ScreenCreativeListProps) {
   return (
     <div className="divide-y">
@@ -46,6 +54,8 @@ export function ScreenCreativeList({
           orderLineId={orderLineId}
           resolutionWidth={resolutionWidth}
           resolutionHeight={resolutionHeight}
+          playbackMode={playbackMode}
+          slotDurationSeconds={slotDurationSeconds}
         />
       ))}
     </div>
@@ -59,6 +69,8 @@ interface ScreenRowProps {
   orderLineId: string;
   resolutionWidth: number;
   resolutionHeight: number;
+  playbackMode: PlaybackMode;
+  slotDurationSeconds?: number;
 }
 
 function ScreenRow({
@@ -66,11 +78,12 @@ function ScreenRow({
   orderLineId,
   resolutionWidth,
   resolutionHeight,
+  playbackMode,
+  slotDurationSeconds,
 }: ScreenRowProps) {
   const [expanded, setExpanded] = useState(false);
   const [showAddSelector, setShowAddSelector] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Creative | null>(null);
-  const [editTarget, setEditTarget] = useState<Creative | null>(null);
 
   const { data: creatives, isLoading } = useTargetCreatives(screen.target_id);
 
@@ -84,20 +97,6 @@ function ScreenRow({
     },
     onError: (error: Error & { response?: { data?: { message?: string } } }) => {
       toast.error(error.response?.data?.message ?? "Error al eliminar creativo");
-    },
-  });
-
-  // Mutation: Update creative
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: UpdateCreativeInput }) =>
-      creativesApi.update(id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["targets", screen.target_id, "creatives"] });
-      toast.success("Creativo actualizado");
-      setEditTarget(null);
-    },
-    onError: (error: Error & { response?: { data?: { message?: string } } }) => {
-      toast.error(error.response?.data?.message ?? "Error al actualizar creativo");
     },
   });
 
@@ -186,11 +185,22 @@ function ScreenRow({
           <Plus className="h-3 w-3" />
           Agregar a esta pantalla
         </Button>
+
+        {/* Loop Preview button */}
+        <LoopPreviewModal screenId={screen.id} screenName={screen.name} />
       </div>
 
       {/* Expanded content */}
       {expanded && (
         <div className="mt-3 ml-6 space-y-3">
+          {/* Per-screen playback mode override */}
+          <PlaybackModeOverrideSelector
+            targetId={screen.target_id}
+            orderLineId={orderLineId}
+            currentOverride={null}
+            parentMode={playbackMode}
+          />
+
           {/* Creatives list */}
           {isLoading ? (
             <div className="space-y-2">
@@ -201,20 +211,25 @@ function ScreenRow({
             <p className="text-xs text-muted-foreground py-2">
               No hay creativos asignados a esta pantalla.
             </p>
+          ) : playbackMode === 'sequential' ? (
+            <DragDropCreativeList
+              creatives={creatives!}
+              targetId={screen.target_id}
+              orderLineId={orderLineId}
+              onDelete={(creative) => setDeleteTarget(creative)}
+            />
           ) : (
             <div className="space-y-2">
-              {creatives!.map((creative) => (
+              {creatives!.map((creative, index) => (
                 <CreativeRow
                   key={creative.id}
                   creative={creative}
-                  isEditing={editTarget?.id === creative.id}
-                  onEdit={() => setEditTarget(creative)}
-                  onCancelEdit={() => setEditTarget(null)}
-                  onSaveEdit={(data) =>
-                    updateMutation.mutate({ id: creative.id, data })
-                  }
                   onDelete={() => setDeleteTarget(creative)}
-                  isSaving={updateMutation.isPending}
+                  playbackMode={playbackMode}
+                  position={index}
+                  targetId={screen.target_id}
+                  orderLineId={orderLineId}
+                  slotDurationSeconds={slotDurationSeconds}
                 />
               ))}
             </div>
@@ -263,87 +278,28 @@ function ScreenRow({
 
 interface CreativeRowProps {
   creative: Creative;
-  isEditing: boolean;
-  onEdit: () => void;
-  onCancelEdit: () => void;
-  onSaveEdit: (data: UpdateCreativeInput) => void;
   onDelete: () => void;
-  isSaving: boolean;
+  playbackMode?: PlaybackMode;
+  position?: number;
+  targetId: string;
+  orderLineId: string;
+  slotDurationSeconds?: number;
 }
 
 function CreativeRow({
   creative,
-  isEditing,
-  onEdit,
-  onCancelEdit,
-  onSaveEdit,
   onDelete,
-  isSaving,
+  playbackMode = 'round_robin',
+  position,
+  targetId,
+  orderLineId,
+  slotDurationSeconds,
 }: CreativeRowProps) {
-  const [editWeight, setEditWeight] = useState(String(creative.weight));
+  const [pixelDialogOpen, setPixelDialogOpen] = useState(false);
 
   // Determine if this creative was assigned via bulk (resolution) or individually.
   // Heuristic: if order_line_id is set (deprecated field present) it was likely bulk-assigned.
-  // For simplicity, we use whether created_at matches other creatives in the same target.
-  // The actual distinction is not stored in the API response, so we use a convention:
-  // creatives without order_line_id are individually assigned.
   const isBulkAssigned = !!creative.order_line_id;
-
-  const handleSave = useCallback(() => {
-    const weight = parseInt(editWeight, 10);
-    if (isNaN(weight) || weight < 1) {
-      toast.error("El peso debe ser un entero mayor o igual a 1");
-      return;
-    }
-    onSaveEdit({ weight });
-  }, [editWeight, onSaveEdit]);
-
-  if (isEditing) {
-    return (
-      <div className="rounded-lg border p-3 space-y-3 bg-muted/30">
-        <div className="flex items-center gap-2">
-          <CreativeThumbnail creative={creative} size="md" />
-          <span className="text-sm font-medium truncate flex-1">
-            {creative.content?.filename ?? "Contenido"}
-          </span>
-        </div>
-
-        {/* Weight edit */}
-        <div className="space-y-1">
-          <Label htmlFor={`weight-${creative.id}`} className="text-xs">
-            Peso (weight)
-          </Label>
-          <Input
-            id={`weight-${creative.id}`}
-            type="number"
-            min={1}
-            value={editWeight}
-            onChange={(e) => setEditWeight(e.target.value)}
-            className="h-8 w-24"
-          />
-        </div>
-
-        {/* Actions */}
-        <div className="flex gap-2">
-          <Button
-            size="sm"
-            onClick={handleSave}
-            disabled={isSaving}
-          >
-            {isSaving ? "Guardando..." : "Guardar"}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onCancelEdit}
-            disabled={isSaving}
-          >
-            Cancelar
-          </Button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex items-center gap-3 rounded-lg border p-2 group hover:bg-muted/20 transition-colors">
@@ -354,7 +310,17 @@ function CreativeRow({
           {creative.content?.filename ?? "Contenido"}
         </p>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>Peso: {creative.weight}</span>
+          {playbackMode === 'sequential' ? (
+            <span>Posición: {(creative.position ?? position ?? 0) + 1}</span>
+          ) : (
+            <InlineWeightEditor
+              creativeId={creative.id}
+              weight={creative.weight}
+              targetId={targetId}
+              orderLineId={orderLineId}
+              playbackMode={playbackMode}
+            />
+          )}
         </div>
       </div>
 
@@ -381,16 +347,22 @@ function CreativeRow({
         )}
       </Badge>
 
+      {/* Duration warning badge */}
+      <DurationWarningBadge
+        content={creative.content}
+        slotDurationSeconds={slotDurationSeconds}
+      />
+
       {/* Actions */}
       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
         <Button
           variant="ghost"
           size="icon"
           className="h-7 w-7"
-          onClick={onEdit}
-          title="Editar peso"
+          onClick={() => setPixelDialogOpen(true)}
+          title="Tracking Pixels"
         >
-          <Pencil className="h-3.5 w-3.5" />
+          <Radio className="h-3.5 w-3.5" />
         </Button>
         <Button
           variant="ghost"
@@ -402,6 +374,14 @@ function CreativeRow({
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
       </div>
+
+      {/* Tracking Pixels Dialog (Creative level) */}
+      <CreativeTrackingPixelsDialog
+        open={pixelDialogOpen}
+        onOpenChange={setPixelDialogOpen}
+        creativeId={creative.id}
+        creativeName={creative.content?.filename}
+      />
     </div>
   );
 }

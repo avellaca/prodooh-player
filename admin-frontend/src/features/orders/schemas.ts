@@ -26,8 +26,6 @@ export const orderLineSchema = z.object({
   delivery_pace: z.enum(['asap', 'uniform'], {
     errorMap: () => ({ message: 'Seleccione un ritmo de entrega' }),
   }),
-  share_weight: z.coerce.number({ invalid_type_error: 'Debe ser un número' })
-    .int('Debe ser un número entero').min(1, 'El peso debe ser al menos 1'),
   status: z.enum(['draft', 'active', 'paused', 'finished']).default('draft'),
   by_slot: z.boolean().default(false),
   slots_purchased: z.coerce.number().int('Debe ser un número entero').min(1, 'Debe ser al menos 1').optional(),

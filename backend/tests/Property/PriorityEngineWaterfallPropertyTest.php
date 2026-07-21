@@ -102,7 +102,6 @@ class PriorityEngineWaterfallPropertyTest extends TestCase
             'ends_at' => '2026-08-31',
             'target_spots' => $desiredBudget, // asap: budget = target - delivered = target - 0 = target
             'delivery_pace' => 'asap',
-            'share_weight' => $shareWeight,
             'status' => 'active',
         ]);
 
@@ -340,7 +339,7 @@ class PriorityEngineWaterfallPropertyTest extends TestCase
      *
      * **Validates: Requirements 3.3**
      */
-    public function test_over_capacity_proportional_allocation_by_share_weight(): void
+    public function test_over_capacity_equal_allocation(): void
     {
         $today = '2026-08-15';
         Carbon::setTestNow(Carbon::parse($today));
@@ -353,17 +352,14 @@ class PriorityEngineWaterfallPropertyTest extends TestCase
 
             // Generate budgets that sum to MORE than capacity (overcapacity)
             $budgets = [];
-            $weights = [];
             $minPerLine = (int) ceil($capacity / $numLines) + 10;
 
             for ($l = 0; $l < $numLines; $l++) {
                 $budgets[] = random_int($minPerLine, $minPerLine + 100);
-                $weights[] = random_int(1, 10);
             }
 
             $totalDemand = array_sum($budgets);
             $this->assertGreaterThan($capacity, $totalDemand);
-            $totalWeight = array_sum($weights);
 
             $lines = collect();
             $tier = ['patrocinio', 'estandar', 'red_interna'][random_int(0, 2)];
@@ -374,7 +370,7 @@ class PriorityEngineWaterfallPropertyTest extends TestCase
                     $infra['content']->id,
                     $tier,
                     $budgets[$l],
-                    $weights[$l],
+                    1, // weight param kept for signature compatibility but ignored
                     $today
                 );
                 $lines->push($line);
@@ -384,21 +380,23 @@ class PriorityEngineWaterfallPropertyTest extends TestCase
             $result = $this->engine->allocateLevel($lines, $capacity);
             $allocations = collect($result['allocations']);
 
-            // Assert each line gets floor(capacity * weight / total_weight)
+            // Assert each line gets floor(capacity * 1 / numLines) (equal weight)
+            $expectedCount = (int) floor($capacity / $numLines);
+
             foreach ($lines as $idx => $line) {
                 $allocation = $allocations->firstWhere('order_line_id', $line->id);
-                $expectedCount = (int) floor($capacity * $weights[$idx] / $totalWeight);
 
                 $this->assertNotNull(
                     $allocation,
                     "Property 8 (iter {$i}): line {$idx} should have an allocation"
                 );
 
-                $this->assertEquals(
+                $this->assertEqualsWithDelta(
                     $expectedCount,
                     $allocation['count'],
-                    "Property 8 (iter {$i}): line {$idx} should get floor({$capacity} * {$weights[$idx]} / {$totalWeight}) " .
-                    "= {$expectedCount}, got {$allocation['count']}"
+                    1, // ±1 for rounding
+                    "Property 8 (iter {$i}): line {$idx} should get approximately floor({$capacity} / {$numLines}) " .
+                    "= {$expectedCount} (±1), got {$allocation['count']}"
                 );
             }
 

@@ -145,6 +145,185 @@ class BulkCreativeController extends Controller
     }
 
     /**
+     * POST /api/admin/order-lines/{orderLineId}/creatives/bulk-assign
+     *
+     * Auto-matching: for each content_id, resolves all target screens by resolution,
+     * creates an individual Creative per matching screen.
+     *
+     * Request body:
+     * {
+     *   "content_ids": ["uuid", ...],
+     *   "weight": 100
+     * }
+     *
+     * Response 201:
+     * {
+     *   "data": {
+     *     "created": N,
+     *     "unmatched_contents": [{"id": "uuid", "width": W, "height": H}, ...],
+     *     "covered_screens": ["uuid", ...]
+     *   }
+     * }
+     */
+    public function bulkAssign(Request $request, string $orderLineId): JsonResponse
+    {
+        if (!Str::isUuid($orderLineId)) {
+            return response()->json(['message' => 'Order line not found.'], 404);
+        }
+
+        $orderLine = OrderLine::with(['order' => fn ($q) => $q->withoutGlobalScopes()])->find($orderLineId);
+
+        if (!$orderLine) {
+            return response()->json(['message' => 'Order line not found.'], 404);
+        }
+
+        $validated = $request->validate([
+            'content_ids' => ['required', 'array', 'min:1'],
+            'content_ids.*' => ['required', 'string', 'exists:content,id'],
+            'weight' => ['required', 'integer', 'min:1'],
+        ], [
+            'content_ids.required' => 'Debe seleccionar al menos un contenido.',
+            'content_ids.min' => 'Debe seleccionar al menos un contenido.',
+            'content_ids.*.exists' => 'Uno de los contenidos seleccionados no existe.',
+            'weight.required' => 'El peso es obligatorio.',
+            'weight.integer' => 'El peso debe ser un número entero.',
+            'weight.min' => 'El peso debe ser al menos 1.',
+        ]);
+
+        $tenantId = $orderLine->order->tenant_id;
+
+        // Validate all contents belong to the same tenant
+        $contents = Content::withoutGlobalScopes()
+            ->whereIn('id', $validated['content_ids'])
+            ->get();
+
+        $invalidContents = $contents->filter(fn ($c) => $c->tenant_id !== $tenantId);
+        if ($invalidContents->isNotEmpty()) {
+            throw ValidationException::withMessages([
+                'content_ids' => ['Algunos contenidos no pertenecen al mismo tenant.'],
+            ]);
+        }
+
+        // 1. Resolve all individual screens from the order line targets
+        $resolutionMap = $this->buildResolutionMap($orderLineId);
+
+        // 2. For each content, match dimensions against resolution map
+        $created = 0;
+        $unmatchedContents = [];
+        $coveredScreens = collect();
+
+        DB::transaction(function () use ($contents, $validated, $resolutionMap, &$created, &$unmatchedContents, &$coveredScreens) {
+            foreach ($contents as $content) {
+                if (is_null($content->width) || is_null($content->height)) {
+                    $unmatchedContents[] = [
+                        'id' => $content->id,
+                        'width' => $content->width,
+                        'height' => $content->height,
+                    ];
+                    continue;
+                }
+
+                $resolutionKey = $content->width . 'x' . $content->height;
+
+                if (!isset($resolutionMap[$resolutionKey])) {
+                    $unmatchedContents[] = [
+                        'id' => $content->id,
+                        'width' => $content->width,
+                        'height' => $content->height,
+                    ];
+                    continue;
+                }
+
+                // Create a Creative per matching screen
+                foreach ($resolutionMap[$resolutionKey] as $entry) {
+                    Creative::create([
+                        'order_line_target_id' => $entry['target_id'],
+                        'content_id' => $content->id,
+                        'weight' => $validated['weight'],
+                        'resolution_width' => $content->width,
+                        'resolution_height' => $content->height,
+                    ]);
+
+                    $created++;
+                    $coveredScreens->push($entry['screen_id']);
+                }
+            }
+        });
+
+        return response()->json([
+            'data' => [
+                'created' => $created,
+                'unmatched_contents' => $unmatchedContents,
+                'covered_screens' => $coveredScreens->unique()->values()->all(),
+            ],
+        ], 201);
+    }
+
+    /**
+     * Build a resolution map from the order line's targets.
+     *
+     * For each target (direct screen or screen group), resolves individual screens
+     * and groups them by resolution key "WxH".
+     *
+     * Returns: ['1920x1080' => [['target_id' => ..., 'screen_id' => ...], ...], ...]
+     *
+     * For group targets, creates individual OrderLineTargets per screen (explosion)
+     * so each screen gets its own creative records. This enables per-screen deletion.
+     */
+    private function buildResolutionMap(string $orderLineId): array
+    {
+        $targets = OrderLineTarget::where('order_line_id', $orderLineId)->get();
+
+        $resolutionMap = [];
+        $seenScreenIds = [];
+
+        foreach ($targets as $target) {
+            if ($target->screen_id) {
+                // Direct screen target — use as-is
+                $screen = Screen::withoutGlobalScopes()->find($target->screen_id);
+                if ($screen && !in_array($screen->id, $seenScreenIds)) {
+                    $key = $screen->resolution_width . 'x' . $screen->resolution_height;
+                    $resolutionMap[$key][] = [
+                        'target_id' => $target->id,
+                        'screen_id' => $screen->id,
+                    ];
+                    $seenScreenIds[] = $screen->id;
+                }
+            } elseif ($target->screen_group_id) {
+                // Group target: create/find individual screen targets for each screen in the group
+                $screens = Screen::withoutGlobalScopes()
+                    ->where('group_id', $target->screen_group_id)
+                    ->get();
+
+                foreach ($screens as $screen) {
+                    if (!in_array($screen->id, $seenScreenIds)) {
+                        // Find or create an individual screen-level target
+                        $screenTarget = OrderLineTarget::firstOrCreate(
+                            [
+                                'order_line_id' => $target->order_line_id,
+                                'screen_id' => $screen->id,
+                            ],
+                            [
+                                'screen_group_id' => null,
+                                'playback_mode_override' => $target->playback_mode_override,
+                            ]
+                        );
+
+                        $key = $screen->resolution_width . 'x' . $screen->resolution_height;
+                        $resolutionMap[$key][] = [
+                            'target_id' => $screenTarget->id,
+                            'screen_id' => $screen->id,
+                        ];
+                        $seenScreenIds[] = $screen->id;
+                    }
+                }
+            }
+        }
+
+        return $resolutionMap;
+    }
+
+    /**
      * Find targets of the order line whose screen matches the given resolution.
      *
      * For group targets, returns the group target_id — the creative will be stored

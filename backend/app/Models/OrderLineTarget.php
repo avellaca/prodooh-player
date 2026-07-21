@@ -39,6 +39,7 @@ class OrderLineTarget extends Model
         'order_line_id',
         'screen_id',
         'screen_group_id',
+        'playback_mode_override',
     ];
 
     /**

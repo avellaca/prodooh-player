@@ -51,7 +51,6 @@ class PaceEnforcementPropertyTest extends TestCase
         $orderLine->starts_at = '2025-01-01';
         $orderLine->ends_at = '2025-12-31';
         $orderLine->target_spots = random_int(1, 10000);
-        $orderLine->share_weight = random_int(1, 100);
         $orderLine->setRelation('order', new Order());
 
         return $orderLine;

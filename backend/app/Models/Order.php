@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class Order extends Model
 {
@@ -79,5 +80,10 @@ class Order extends Model
     public function advertiser()
     {
         return $this->belongsTo(Advertiser::class);
+    }
+
+    public function trackingPixels(): MorphMany
+    {
+        return $this->morphMany(TrackingPixel::class, 'trackable');
     }
 }

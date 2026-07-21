@@ -220,7 +220,6 @@ class PriorityEngineTest extends TestCase
             'ends_at' => '2026-08-10',
             'target_spots' => 100,
             'delivery_pace' => 'uniform',
-            'share_weight' => 100,
             'status' => 'active',
         ]);
 
@@ -251,7 +250,6 @@ class PriorityEngineTest extends TestCase
             'ends_at' => '2026-08-10',
             'target_spots' => 100,
             'delivery_pace' => 'uniform',
-            'share_weight' => 100,
             'status' => 'active',
         ]);
 
@@ -301,7 +299,6 @@ class PriorityEngineTest extends TestCase
             'ends_at' => '2026-08-10',
             'target_spots' => 100,
             'delivery_pace' => 'asap',
-            'share_weight' => 100,
             'status' => 'active',
         ]);
 
@@ -329,7 +326,6 @@ class PriorityEngineTest extends TestCase
             'ends_at' => '2026-08-10',
             'target_spots' => null,
             'delivery_pace' => 'uniform',
-            'share_weight' => 50,
             'status' => 'active',
         ]);
 
@@ -356,7 +352,6 @@ class PriorityEngineTest extends TestCase
             'ends_at' => '2026-08-10',
             'target_spots' => 5,
             'delivery_pace' => 'uniform',
-            'share_weight' => 100,
             'status' => 'active',
         ]);
 
@@ -408,7 +403,6 @@ class PriorityEngineTest extends TestCase
             'ends_at' => '2026-08-15',
             'target_spots' => 100,
             'delivery_pace' => 'uniform',
-            'share_weight' => 100,
             'status' => 'active',
         ]);
 
@@ -452,7 +446,6 @@ class PriorityEngineTest extends TestCase
             'ends_at' => '2026-08-15',
             'target_spots' => 100,
             'delivery_pace' => 'uniform',
-            'share_weight' => 100,
             'status' => 'active',
         ]);
 
@@ -495,7 +488,6 @@ class PriorityEngineTest extends TestCase
             'ends_at' => '2026-08-15',
             'target_spots' => 100,
             'delivery_pace' => 'uniform',
-            'share_weight' => 100,
             'status' => 'active',
         ]);
 
@@ -537,7 +529,6 @@ class PriorityEngineTest extends TestCase
             'ends_at' => '2026-08-15',
             'target_spots' => 5,
             'delivery_pace' => 'uniform',
-            'share_weight' => 100,
             'status' => 'active',
         ]);
 
@@ -592,7 +583,6 @@ class PriorityEngineTest extends TestCase
             'ends_at' => '2026-08-15',
             'target_spots' => 100,
             'delivery_pace' => 'uniform',
-            'share_weight' => 100,
             'status' => 'active',
             'active_dates' => ['2026-08-01', '2026-08-10'],
         ]);
@@ -636,7 +626,6 @@ class PriorityEngineTest extends TestCase
             'ends_at' => '2026-09-10',
             'target_spots' => 100,
             'delivery_pace' => 'uniform',
-            'share_weight' => 100,
             'status' => 'active',
         ]);
 
@@ -689,7 +678,6 @@ class PriorityEngineTest extends TestCase
             'ends_at' => '2026-08-15',
             'target_spots' => 100,
             'delivery_pace' => 'uniform',
-            'share_weight' => 100,
             'status' => 'active',
         ]);
 
@@ -732,7 +720,6 @@ class PriorityEngineTest extends TestCase
             'ends_at' => '2026-08-15',
             'target_spots' => null,
             'delivery_pace' => 'uniform',
-            'share_weight' => 50,
             'status' => 'active',
         ]);
 

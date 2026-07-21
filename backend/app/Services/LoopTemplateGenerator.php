@@ -8,6 +8,7 @@ use App\Models\OrderLine;
 use App\Models\OrderLineTarget;
 use App\Models\Screen;
 use App\Models\ScreenManifest;
+use App\Services\PlaybackModeResolver;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Bus;
@@ -449,14 +450,27 @@ class LoopTemplateGenerator implements LoopTemplateGeneratorInterface
         for ($i = 0; $i < $adSlots; $i++) {
             if (isset($adAssignments[$i])) {
                 $assignment = $adAssignments[$i];
-                $candidates = $this->enrichAdCandidates($assignment->candidates, $screen);
 
-                $slots[] = [
-                    'position' => $i,
-                    'type' => 'ad',
-                    'strategy' => $assignment->strategy,
-                    'candidates' => $candidates,
-                ];
+                // Resolve the effective playback mode for this slot's target
+                $effectiveMode = $this->resolveSlotPlaybackMode($assignment->candidates, $screen);
+
+                if ($effectiveMode === 'sequential') {
+                    $candidates = $this->enrichAdCandidatesSequential($assignment->candidates, $screen);
+                    $slots[] = [
+                        'position' => $i,
+                        'type' => 'ad',
+                        'strategy' => 'sequential',
+                        'candidates' => $candidates,
+                    ];
+                } else {
+                    $candidates = $this->enrichAdCandidates($assignment->candidates, $screen);
+                    $slots[] = [
+                        'position' => $i,
+                        'type' => 'ad',
+                        'strategy' => $assignment->strategy,
+                        'candidates' => $candidates,
+                    ];
+                }
             } else {
                 // Empty ad slot (no lines assigned to this position)
                 $slots[] = [
@@ -501,6 +515,95 @@ class LoopTemplateGenerator implements LoopTemplateGeneratorInterface
         }
 
         return $slots;
+    }
+
+    /**
+     * Resolve the effective playback mode for a slot based on its candidates.
+     *
+     * Looks at the first candidate's order line target to determine the playback mode.
+     * Returns 'sequential' if the target's effective mode is sequential, otherwise 'round_robin'.
+     */
+    private function resolveSlotPlaybackMode(array $candidates, Screen $screen): string
+    {
+        if (empty($candidates)) {
+            return 'round_robin';
+        }
+
+        $screenId = $screen->id;
+        $groupId = $screen->group_id;
+
+        // Use the first candidate's order line to find the target
+        $lineId = $candidates[0]['order_line_id'] ?? '';
+        if (empty($lineId)) {
+            return 'round_robin';
+        }
+
+        $target = OrderLineTarget::where('order_line_id', $lineId)
+            ->where(function ($q) use ($screenId, $groupId) {
+                $q->where('screen_id', $screenId);
+                if ($groupId) {
+                    $q->orWhere('screen_group_id', $groupId);
+                }
+            })
+            ->first();
+
+        if (!$target) {
+            return 'round_robin';
+        }
+
+        return PlaybackModeResolver::resolve($target);
+    }
+
+    /**
+     * Enrich ad slot candidates for sequential mode.
+     *
+     * In sequential mode, ALL creatives for the target are included, ordered by position ASC (nulls last).
+     * No weight-based selection is applied — all candidates are returned in their defined order.
+     */
+    private function enrichAdCandidatesSequential(array $candidates, Screen $screen): array
+    {
+        $screenId = $screen->id;
+        $groupId = $screen->group_id;
+
+        $allCandidates = [];
+
+        foreach ($candidates as $candidate) {
+            $lineId = $candidate['order_line_id'] ?? '';
+
+            $target = OrderLineTarget::where('order_line_id', $lineId)
+                ->where(function ($q) use ($screenId, $groupId) {
+                    $q->where('screen_id', $screenId);
+                    if ($groupId) {
+                        $q->orWhere('screen_group_id', $groupId);
+                    }
+                })
+                ->first();
+
+            if (!$target) {
+                continue;
+            }
+
+            // Fetch ALL creatives for this target, ordered by position ASC (nulls last)
+            $creatives = Creative::where('order_line_target_id', $target->id)
+                ->whereHas('content')
+                ->with('content')
+                ->orderByRaw('position IS NULL, position ASC')
+                ->get();
+
+            foreach ($creatives as $creative) {
+                $content = $creative->content;
+                $allCandidates[] = [
+                    'order_line_id' => $lineId,
+                    'creative_id' => $creative->id,
+                    'asset_url' => $content
+                        ? url("/api/device/content/{$content->id}/file")
+                        : '',
+                    'checksum_sha256' => $content->checksum_sha256 ?? '',
+                ];
+            }
+        }
+
+        return $allCandidates;
     }
 
     /**

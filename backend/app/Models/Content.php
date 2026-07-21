@@ -6,6 +6,7 @@ use App\Models\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Content extends Model
 {
@@ -64,5 +65,13 @@ class Content extends Model
     public function creatives()
     {
         return $this->hasMany(Creative::class);
+    }
+
+    /**
+     * Get the tags associated with this content.
+     */
+    public function tags(): BelongsToMany
+    {
+        return $this->belongsToMany(Tag::class, 'content_tags');
     }
 }

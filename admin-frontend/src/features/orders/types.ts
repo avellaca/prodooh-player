@@ -18,6 +18,8 @@ export interface Order {
   order_lines?: OrderLine[];
 }
 
+export type PlaybackMode = 'round_robin' | 'sequential';
+
 export interface OrderLine {
   id: string;
   order_id: string;
@@ -28,8 +30,8 @@ export interface OrderLine {
   active_dates: string[] | null;
   target_spots: number | null;
   delivery_pace: 'asap' | 'uniform';
-  share_weight: number;
   status: 'draft' | 'active' | 'paused' | 'finished';
+  playback_mode: PlaybackMode;
   by_slot: boolean;
   slots_purchased: number | null;
   created_at: string;
@@ -45,6 +47,7 @@ export interface Creative {
   order_line_target_id: string;
   content_id: string;
   weight: number;
+  position: number | null;
   resolution_width: number | null;
   resolution_height: number | null;
   created_at: string;
@@ -89,7 +92,30 @@ export interface OrderLineTarget {
   order_line_id: string;
   screen_id: string | null;
   screen_group_id: string | null;
+  playback_mode_override: PlaybackMode | null;
   created_at: string;
   screen?: Screen;
   screen_group?: ScreenGroup;
+}
+
+// ─── Tracking Pixels ─────────────────────────────────────────────────────────
+
+export type TrackableType = 'orders' | 'order-lines' | 'creatives';
+export type TriggerType = 'play' | 'impression';
+
+export interface TrackingPixel {
+  id: string;
+  trackable_type: string;
+  trackable_id: string;
+  url: string;
+  trigger_type: TriggerType;
+  multiplier: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TrackingPixelInput {
+  url: string;
+  trigger_type: TriggerType;
+  multiplier: number;
 }

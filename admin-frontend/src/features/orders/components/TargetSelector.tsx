@@ -42,6 +42,20 @@ export function TargetSelector({ orderLineId }: TargetSelectorProps) {
   );
   const availableGroups = groups.filter((g) => !assignedGroupIds.has(g.id));
 
+  // Filter targets for display: hide screen-level targets whose screen belongs
+  // to an already-assigned group (these are "internal" targets created by bulk-assign)
+  const screenIdsInAssignedGroups = new Set(
+    screens
+      .filter((s) => s.group_id && assignedGroupIds.has(s.group_id))
+      .map((s) => s.id),
+  );
+  const visibleTargets = targets.filter((t: OrderLineTarget) => {
+    // Always show group targets
+    if (t.screen_group_id) return true;
+    // Show screen targets only if the screen is NOT part of an assigned group
+    return !screenIdsInAssignedGroups.has(t.screen_id!);
+  });
+
   function handleAssignScreen(screenId: string) {
     createTarget.mutate({ screen_id: screenId });
   }
@@ -72,9 +86,9 @@ export function TargetSelector({ orderLineId }: TargetSelectorProps) {
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Assigned targets list */}
-        {targets.length > 0 && (
+        {visibleTargets.length > 0 && (
           <ul className="space-y-2" role="list" aria-label="Targets asignados">
-            {targets.map((target: OrderLineTarget) => (
+            {visibleTargets.map((target: OrderLineTarget) => (
               <li
                 key={target.id}
                 className="flex items-center justify-between rounded-md border px-3 py-2"
@@ -118,7 +132,7 @@ export function TargetSelector({ orderLineId }: TargetSelectorProps) {
           </ul>
         )}
 
-        {targets.length === 0 && (
+        {visibleTargets.length === 0 && (
           <p className="text-sm text-muted-foreground">
             No hay pantallas ni grupos asignados.
           </p>

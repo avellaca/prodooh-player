@@ -1,4 +1,4 @@
-import { useRef, useCallback, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { format } from 'date-fns';
@@ -33,13 +33,16 @@ import { orderLinesApi } from '../api';
 import type { AvailabilityInfo } from '../api';
 import { OrderLineForm } from '../components/OrderLineForm';
 import { AvailabilityAlertModal } from '../components/AvailabilityAlertModal';
-import { ResolutionDashboard } from '../components/ResolutionDashboard';
-import { ResolutionGroupCard } from '../components/ResolutionGroupCard';
+import { PlaybackModeSelector } from '../components/PlaybackModeSelector';
 import { TargetSelector } from '../components/TargetSelector';
-import type { OrderLine, ResolutionGroup } from '../types';
+import { BulkCreativesModal } from '../components/BulkCreativesModal';
+import { TabbedCreativeView } from '../components/TabbedCreativeView';
+import { CopyCreativesDialog } from '../components/CopyCreativesDialog';
+import type { OrderLine } from '../types';
 import type { OrderLineFormValues } from '../schemas';
 import { queryClient } from '@/lib/query-client';
 import { useTenant } from '@/features/tenants/hooks';
+import { TrackingPixelPanel } from '../components/TrackingPixelPanel';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -72,10 +75,6 @@ function formatDate(isoDate: string): string {
   return format(new Date(isoDate), 'dd-MM-yyyy');
 }
 
-function resolutionKey(group: ResolutionGroup): string {
-  return `${group.resolution_width}x${group.resolution_height}`;
-}
-
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function OrderLineDetailPage() {
@@ -87,9 +86,8 @@ export default function OrderLineDetailPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [availabilityModalOpen, setAvailabilityModalOpen] = useState(false);
   const [availabilityInfo, setAvailabilityInfo] = useState<AvailabilityInfo | null>(null);
-
-  // Refs for scroll-to-group behavior
-  const groupRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [librarySelectorOpen, setLibrarySelectorOpen] = useState(false);
+  const [copyDialogOpen, setCopyDialogOpen] = useState(false);
 
   // ─── Queries ───────────────────────────────────────────────────────────────
 
@@ -163,14 +161,6 @@ export default function OrderLineDetailPage() {
   });
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
-
-  const handleGroupClick = useCallback((group: ResolutionGroup) => {
-    const key = resolutionKey(group);
-    const el = groupRefs.current[key];
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  }, []);
 
   const handleCreativeAdded = useCallback(() => {
     refetchResolutions();
@@ -285,10 +275,6 @@ export default function OrderLineDetailPage() {
               <p className="text-sm font-medium text-muted-foreground">Ritmo de entrega</p>
               <p className="text-sm">{PACE_LABELS[orderLine.delivery_pace]}</p>
             </div>
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">Peso</p>
-              <p className="text-sm">{orderLine.share_weight}</p>
-            </div>
           </div>
         </CardContent>
       </Card>
@@ -296,52 +282,31 @@ export default function OrderLineDetailPage() {
       {/* Target assignment (screens / groups) */}
       <TargetSelector orderLineId={lineId!} />
 
-      {/* Resolution Dashboard */}
-      {resolutionsLoading ? (
-        <LoadingState rows={2} />
-      ) : resolutionsError ? (
-        <ErrorState
-          message="Error al cargar resoluciones"
-          onRetry={() => refetchResolutions()}
-        />
-      ) : resolutions && resolutions.length > 0 ? (
-        <ResolutionDashboard
-          resolutions={resolutions}
-          onGroupClick={handleGroupClick}
-        />
-      ) : null}
+      {/* Playback Mode Selector */}
+      <PlaybackModeSelector
+        orderLineId={lineId!}
+        currentMode={orderLine.playback_mode ?? 'round_robin'}
+      />
 
-      {/* Resolution Group Cards */}
-      {resolutionsLoading ? (
-        <LoadingState rows={4} />
-      ) : resolutionsError ? null : resolutions && resolutions.length > 0 ? (
-        <div className="space-y-4">
-          <h2 className="text-xl font-semibold">Creativos por resolución</h2>
-          {resolutions.map((group) => {
-            const key = resolutionKey(group);
-            return (
-              <div
-                key={key}
-                ref={(el) => { groupRefs.current[key] = el; }}
-              >
-                <ResolutionGroupCard
-                  group={group}
-                  orderLineId={lineId!}
-                  onCreativeAdded={handleCreativeAdded}
-                />
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <p className="text-sm text-muted-foreground">
-              No hay pantallas asignadas a esta línea de pedido. Asigna pantallas o grupos para comenzar a gestionar creativos.
-            </p>
-          </CardContent>
-        </Card>
-      )}
+      {/* Tabbed Creative View — Por Resolución (default), Por Grupo, Por Pantalla */}
+      <TabbedCreativeView
+        resolutions={resolutions}
+        resolutionsLoading={resolutionsLoading}
+        resolutionsError={resolutionsError}
+        refetchResolutions={refetchResolutions}
+        orderLineId={lineId!}
+        playbackMode={orderLine.playback_mode ?? 'round_robin'}
+        onCreativeAdded={handleCreativeAdded}
+        onOpenLibrarySelector={() => setLibrarySelectorOpen(true)}
+        onOpenCopyDialog={() => setCopyDialogOpen(true)}
+      />
+      {/* Tracking Pixels — OrderLine level */}
+      <TrackingPixelPanel
+        trackableType="order-lines"
+        trackableId={lineId!}
+        title="Tracking Pixels (Línea de pedido)"
+      />
+
       {/* Edit Order Line Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="sm:max-w-[550px] max-h-[85vh] overflow-y-auto">
@@ -359,7 +324,6 @@ export default function OrderLineDetailPage() {
                 ? Math.round((orderLine.target_spots ?? 0) / orderLine.active_dates.length)
                 : orderLine.target_spots ?? 1,
               delivery_pace: orderLine.delivery_pace,
-              share_weight: orderLine.share_weight,
               status: orderLine.status,
               by_slot: orderLine.by_slot ?? false,
               slots_purchased: orderLine.slots_purchased ?? undefined,
@@ -409,6 +373,23 @@ export default function OrderLineDetailPage() {
           }}
         />
       )}
+
+      {/* Bulk Creatives Modal — library selection + upload with auto-assign */}
+      <BulkCreativesModal
+        open={librarySelectorOpen}
+        onOpenChange={setLibrarySelectorOpen}
+        orderLineId={lineId!}
+        onAssignComplete={handleCreativeAdded}
+      />
+
+      {/* Copy Creatives Dialog — copy to another OrderLine */}
+      <CopyCreativesDialog
+        open={copyDialogOpen}
+        onOpenChange={setCopyDialogOpen}
+        sourceOrderLineId={lineId!}
+        sourceOrderId={orderId!}
+        onSuccess={handleCreativeAdded}
+      />
     </div>
   );
 }

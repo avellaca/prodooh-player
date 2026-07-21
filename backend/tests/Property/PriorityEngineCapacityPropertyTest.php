@@ -309,7 +309,6 @@ class PriorityEngineCapacityPropertyTest extends TestCase
                 'ends_at' => $endsAt->toDateString(),
                 'target_spots' => $targetSpots,
                 'delivery_pace' => $pace,
-                'share_weight' => 100,
                 'status' => 'active',
             ]);
 
@@ -417,7 +416,6 @@ class PriorityEngineCapacityPropertyTest extends TestCase
                 'ends_at' => '2026-08-31',
                 'target_spots' => $targetSpots,
                 'delivery_pace' => 'uniform',
-                'share_weight' => 100,
                 'status' => 'active',
             ]);
 

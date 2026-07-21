@@ -61,8 +61,22 @@ class ResolutionController extends Controller
         }
 
         // Deduplicate screens (a screen could appear via both direct and group targets)
-        // Keep the first occurrence for each screen_id
-        $uniqueScreenEntries = $screenEntries->unique(fn ($entry) => $entry['screen']->id);
+        // Prefer screen-level targets over group targets (creatives live at screen level after bulk-assign)
+        $screenMap = [];
+        foreach ($screenEntries as $entry) {
+            $screenId = $entry['screen']->id;
+            if (!isset($screenMap[$screenId])) {
+                $screenMap[$screenId] = $entry;
+            } else {
+                // If current entry is a direct screen target, prefer it over group target
+                $existingTarget = OrderLineTarget::find($screenMap[$screenId]['target_id']);
+                $newTarget = OrderLineTarget::find($entry['target_id']);
+                if ($newTarget && $newTarget->screen_id !== null) {
+                    $screenMap[$screenId] = $entry;
+                }
+            }
+        }
+        $uniqueScreenEntries = collect(array_values($screenMap));
 
         // Group by resolution (width x height)
         $grouped = $uniqueScreenEntries->groupBy(function ($entry) {

@@ -9,6 +9,7 @@ use App\Models\OrderLineTarget;
 use App\Models\Screen;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class CreativeController extends Controller
@@ -22,7 +23,7 @@ class CreativeController extends Controller
     {
         $target = $this->findTargetOrFail($targetId);
 
-        if (!$target) {
+        if (! $target) {
             return response()->json(['message' => 'Order line target not found.'], 404);
         }
 
@@ -40,12 +41,14 @@ class CreativeController extends Controller
      * - content_id exists and belongs to same tenant
      * - content resolution matches the target's screen resolution exactly
      * - weight is integer >= 1
+     *
+     * When the effective playback mode is 'sequential', assigns position = max(existing_positions) + 1.
      */
     public function store(Request $request, string $targetId): JsonResponse
     {
         $target = $this->findTargetOrFail($targetId);
 
-        if (!$target) {
+        if (! $target) {
             return response()->json(['message' => 'Order line target not found.'], 404);
         }
 
@@ -70,6 +73,13 @@ class CreativeController extends Controller
 
         $validated['order_line_target_id'] = $target->id;
 
+        // In sequential mode, assign position = max(existing_positions) + 1
+        $effectiveMode = $this->resolveEffectivePlaybackMode($target);
+        if ($effectiveMode === 'sequential') {
+            $maxPosition = $target->creatives()->max('position');
+            $validated['position'] = ($maxPosition !== null ? (int) $maxPosition : -1) + 1;
+        }
+
         // Creative creation triggers CreativeObserver which dispatches ManifestRecalculation
         $creative = Creative::create($validated);
 
@@ -87,7 +97,7 @@ class CreativeController extends Controller
     {
         $creative = $this->findCreativeOrFail($id);
 
-        if (!$creative) {
+        if (! $creative) {
             return response()->json(['message' => 'Creative not found.'], 404);
         }
 
@@ -125,13 +135,62 @@ class CreativeController extends Controller
     {
         $creative = $this->findCreativeOrFail($id);
 
-        if (!$creative) {
+        if (! $creative) {
             return response()->json(['message' => 'Creative not found.'], 404);
         }
 
         $creative->delete();
 
         return response()->json(['message' => 'Creative deleted successfully.']);
+    }
+
+    /**
+     * Reorder creatives for an order line target.
+     *
+     * POST /api/admin/order-line-targets/{targetId}/creatives/reorder
+     *
+     * Accepts { creative_ids: uuid[] } and assigns position = index (0, 1, 2, ..., N-1).
+     */
+    public function reorder(Request $request, string $targetId): JsonResponse
+    {
+        $target = $this->findTargetOrFail($targetId);
+
+        if (! $target) {
+            return response()->json(['message' => 'Order line target not found.'], 404);
+        }
+
+        $validated = $request->validate([
+            'creative_ids' => ['required', 'array', 'min:1'],
+            'creative_ids.*' => ['required', 'string', 'uuid'],
+        ], [
+            'creative_ids.required' => 'La lista de creativos es obligatoria.',
+            'creative_ids.array' => 'creative_ids debe ser un arreglo.',
+            'creative_ids.min' => 'Debe proporcionar al menos un creativo.',
+            'creative_ids.*.uuid' => 'Cada creative_id debe ser un UUID válido.',
+        ]);
+
+        $creativeIds = $validated['creative_ids'];
+
+        // Verify all creative_ids belong to this target
+        $existingIds = $target->creatives()->pluck('id')->toArray();
+        $invalidIds = array_diff($creativeIds, $existingIds);
+
+        if (! empty($invalidIds)) {
+            throw ValidationException::withMessages([
+                'creative_ids' => ['Algunos IDs no pertenecen a este target: '.implode(', ', $invalidIds)],
+            ]);
+        }
+
+        // Update positions within a transaction
+        DB::transaction(function () use ($creativeIds) {
+            foreach ($creativeIds as $index => $creativeId) {
+                Creative::where('id', $creativeId)->update(['position' => $index]);
+            }
+        });
+
+        $creatives = $target->creatives()->with('content')->orderBy('position')->get();
+
+        return response()->json(['data' => $creatives]);
     }
 
     /**
@@ -164,7 +223,7 @@ class CreativeController extends Controller
         $order = $target->orderLine->order ?? $target->load('orderLine.order')->orderLine->order;
         $content = Content::withoutGlobalScopes()->find($contentId);
 
-        if (!$content || $content->tenant_id !== $order->tenant_id) {
+        if (! $content || $content->tenant_id !== $order->tenant_id) {
             throw ValidationException::withMessages([
                 'content_id' => ['The selected content does not belong to the same tenant.'],
             ]);
@@ -183,7 +242,7 @@ class CreativeController extends Controller
     {
         $content = Content::withoutGlobalScopes()->find($contentId);
 
-        if (!$content) {
+        if (! $content) {
             return;
         }
 
@@ -226,5 +285,20 @@ class CreativeController extends Controller
                 ],
             ]);
         }
+    }
+
+    /**
+     * Resolve the effective playback mode for a target.
+     * Returns override if set, otherwise the order line's playback_mode, defaulting to 'round_robin'.
+     */
+    private function resolveEffectivePlaybackMode(OrderLineTarget $target): string
+    {
+        if ($target->playback_mode_override !== null) {
+            return $target->playback_mode_override;
+        }
+
+        $target->loadMissing('orderLine');
+
+        return $target->orderLine->playback_mode ?? 'round_robin';
     }
 }

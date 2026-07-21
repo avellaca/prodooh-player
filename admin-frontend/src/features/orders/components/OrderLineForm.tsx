@@ -28,7 +28,6 @@ export interface OrderLineSubmitPayload {
   active_dates: string[];
   target_spots: number;
   delivery_pace: "asap" | "uniform";
-  share_weight: number;
   status: "draft" | "active" | "paused" | "finished";
   by_slot?: boolean;
   slots_purchased?: number | null;
@@ -80,7 +79,6 @@ export function OrderLineForm({
       spots_mode: "spots_por_dia",
       spots_input: 1,
       delivery_pace: "uniform",
-      share_weight: 1,
       status: "draft",
       active_dates: [],
       by_slot: false,
@@ -136,7 +134,6 @@ export function OrderLineForm({
       active_dates: formValues.active_dates,
       target_spots: computedTotalSpots,
       delivery_pace: effectivePace,
-      share_weight: formValues.share_weight,
       status: formValues.status,
       by_slot: formValues.priority_tier === "patrocinio" ? formValues.by_slot : false,
       slots_purchased: formValues.priority_tier === "patrocinio" && formValues.by_slot
@@ -200,37 +197,6 @@ export function OrderLineForm({
         {errors.priority_tier?.message && (
           <p className="text-sm text-red-500">
             {errors.priority_tier.message as string}
-          </p>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        <Label>Fechas activas</Label>
-        <Controller
-          name="active_dates"
-          control={control}
-          render={({ field }) => {
-            // Minimum date is today (local time) — can't select past dates
-            const today = new Date();
-            const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-            const effectiveMin = parentOrder.starts_at && parentOrder.starts_at > todayStr
-              ? parentOrder.starts_at
-              : todayStr;
-
-            return (
-              <ActiveDatesPicker
-                value={field.value ?? []}
-                onChange={field.onChange}
-                minDate={effectiveMin}
-                maxDate={parentOrder.ends_at || undefined}
-                disabled={isSubmitting}
-              />
-            );
-          }}
-        />
-        {errors.active_dates?.message && (
-          <p className="text-sm text-red-500">
-            {errors.active_dates.message as string}
           </p>
         )}
       </div>
@@ -413,25 +379,37 @@ export function OrderLineForm({
         </div>
       )}
 
+      {/* Fechas activas — calendar at the end */}
       <div className="space-y-2">
-        <Label htmlFor="share_weight">Peso de reparto</Label>
-        <Input
-          id="share_weight"
-          type="number"
-          min={1}
-          disabled={isSubmitting}
-          className={cn(
-            errors.share_weight && "border-red-500 focus-visible:ring-red-500"
-          )}
-          {...register("share_weight")}
+        <Label>Fechas activas</Label>
+        <Controller
+          name="active_dates"
+          control={control}
+          render={({ field }) => {
+            // Minimum date is today (local time) — can't select past dates
+            const today = new Date();
+            const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            const effectiveMin = parentOrder.starts_at && parentOrder.starts_at > todayStr
+              ? parentOrder.starts_at
+              : todayStr;
+
+            return (
+              <ActiveDatesPicker
+                value={field.value ?? []}
+                onChange={field.onChange}
+                minDate={effectiveMin}
+                maxDate={parentOrder.ends_at || undefined}
+                disabled={isSubmitting}
+              />
+            );
+          }}
         />
-        {errors.share_weight?.message && (
+        {errors.active_dates?.message && (
           <p className="text-sm text-red-500">
-            {errors.share_weight.message as string}
+            {errors.active_dates.message as string}
           </p>
         )}
       </div>
-
 
       <div className="flex justify-end">
         <Button type="submit" disabled={isSubmitting}>

@@ -59,7 +59,6 @@ class OrderLineController extends Controller
             'ends_at' => ['required', 'date', 'after_or_equal:starts_at'],
             'target_spots' => ['required', 'integer', 'min:1'],
             'delivery_pace' => ['required', Rule::in(['asap', 'uniform'])],
-            'share_weight' => ['required', 'integer', 'min:1'],
             'status' => ['required', Rule::in(['draft', 'active', 'paused', 'finished'])],
             'active_dates' => ['nullable', 'array'],
             'active_dates.*' => ['required', 'string', 'date_format:Y-m-d'],
@@ -131,12 +130,12 @@ class OrderLineController extends Controller
             'ends_at' => ['sometimes', 'required', 'date', 'after_or_equal:starts_at'],
             'target_spots' => ['sometimes', 'required', 'integer', 'min:1'],
             'delivery_pace' => ['sometimes', 'required', Rule::in(['asap', 'uniform'])],
-            'share_weight' => ['sometimes', 'required', 'integer', 'min:1'],
             'status' => ['sometimes', 'required', Rule::in(['draft', 'active', 'paused', 'finished'])],
             'active_dates' => ['sometimes', 'nullable', 'array'],
             'active_dates.*' => ['required', 'string', 'date_format:Y-m-d'],
             'by_slot' => ['sometimes', 'boolean'],
             'slots_purchased' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            'playback_mode' => ['sometimes', Rule::in(['round_robin', 'sequential'])],
         ];
 
         // Validate slots_purchased max against tenant's ad_slots when patrocinio

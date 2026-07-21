@@ -4,9 +4,12 @@ use App\Http\Controllers\Admin\AdminAuthController;
 use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\BulkCreativeController;
 use App\Http\Controllers\Admin\ContentController;
+use App\Http\Controllers\Admin\CopyCreativesController;
 use App\Http\Controllers\Admin\ContentPreviewController;
+use App\Http\Controllers\Admin\ContentTagController;
 use App\Http\Controllers\Admin\CreativeController;
 use App\Http\Controllers\Admin\LoopConfigController;
+use App\Http\Controllers\Admin\LoopPreviewController;
 use App\Http\Controllers\Admin\OrderController;
 use App\Http\Controllers\Admin\OrderLineController;
 use App\Http\Controllers\Admin\OrderLineTargetController;
@@ -17,7 +20,9 @@ use App\Http\Controllers\Admin\ScreenCommandController;
 use App\Http\Controllers\Admin\ScreenController;
 use App\Http\Controllers\Admin\ScreenGroupController;
 use App\Http\Controllers\Admin\ScreenshotViewController;
+use App\Http\Controllers\Admin\TagController;
 use App\Http\Controllers\Admin\TenantController;
+use App\Http\Controllers\Admin\TrackingPixelController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Device\DeviceAuthController;
@@ -111,9 +116,6 @@ Route::prefix('admin')->group(function () {
             return response()->json(request()->user());
         })->name('admin.user');
 
-        // Voice assistant — extract clean data from transcription (all authenticated users)
-        Route::post('/voice/extract', [\App\Http\Controllers\Admin\VoiceExtractController::class, 'extract'])->name('admin.voice.extract');
-
         // Tenant management — super-admin only
         Route::middleware('role:super_admin')->group(function () {
             Route::get('/tenants', [TenantController::class, 'index'])->name('admin.tenants.index');
@@ -156,6 +158,7 @@ Route::prefix('admin')->group(function () {
 
             // Order line targets (assign/unassign screens/groups)
             Route::post('/order-lines/{orderLineId}/targets', [OrderLineTargetController::class, 'store'])->name('admin.order-line-targets.store');
+            Route::put('/order-line-targets/{id}', [OrderLineTargetController::class, 'update'])->name('admin.order-line-targets.update');
             Route::delete('/order-line-targets/{id}', [OrderLineTargetController::class, 'destroy'])->name('admin.order-line-targets.destroy');
 
             // Resolutions (screens grouped by resolution for an order line)
@@ -163,11 +166,18 @@ Route::prefix('admin')->group(function () {
 
             // Bulk creative assignment by resolution
             Route::post('/order-lines/{orderLineId}/creatives/bulk-by-resolution', [BulkCreativeController::class, 'bulkByResolution'])->name('admin.creatives.bulkByResolution');
+
+            // Bulk creative assignment with auto-matching
+            Route::post('/order-lines/{orderLineId}/creatives/bulk-assign', [BulkCreativeController::class, 'bulkAssign'])->name('admin.creatives.bulkAssign');
+
+            // Copy creatives between order lines
+            Route::post('/order-lines/{sourceId}/copy-creatives', [CopyCreativesController::class, 'copy'])->name('admin.creatives.copy');
         });
 
         Route::middleware('authorize:creatives')->group(function () {
             Route::get('/order-line-targets/{targetId}/creatives', [CreativeController::class, 'index'])->name('admin.creatives.index');
             Route::post('/order-line-targets/{targetId}/creatives', [CreativeController::class, 'store'])->name('admin.creatives.store');
+            Route::post('/order-line-targets/{targetId}/creatives/reorder', [CreativeController::class, 'reorder'])->name('admin.creatives.reorder');
             Route::put('/creatives/{id}', [CreativeController::class, 'update'])->name('admin.creatives.update');
             Route::delete('/creatives/{id}', [CreativeController::class, 'destroy'])->name('admin.creatives.destroy');
         });
@@ -182,6 +192,18 @@ Route::prefix('admin')->group(function () {
         Route::get('/{auditableType}/{id}/audit-logs', [AuditLogController::class, 'index'])
             ->where('auditableType', 'orders|order-lines|creatives')
             ->name('admin.audit-logs.index');
+
+        // --- Tracking Pixels: polymorphic CRUD (orders, order-lines, creatives) ---
+        Route::get('/{trackableType}/{id}/tracking-pixels', [TrackingPixelController::class, 'index'])
+            ->where('trackableType', 'orders|order-lines|creatives')
+            ->name('admin.tracking-pixels.index');
+        Route::post('/{trackableType}/{id}/tracking-pixels', [TrackingPixelController::class, 'store'])
+            ->where('trackableType', 'orders|order-lines|creatives')
+            ->name('admin.tracking-pixels.store');
+        Route::put('/tracking-pixels/{id}', [TrackingPixelController::class, 'update'])
+            ->name('admin.tracking-pixels.update');
+        Route::delete('/tracking-pixels/{id}', [TrackingPixelController::class, 'destroy'])
+            ->name('admin.tracking-pixels.destroy');
 
         // --- Configuration: tenant_admin + super_admin only (trafficker denied) ---
         Route::middleware('authorize:config')->group(function () {
@@ -228,9 +250,20 @@ Route::prefix('admin')->group(function () {
             // Content library
             Route::get('/content', [ContentController::class, 'index'])->name('admin.content.index');
             Route::post('/content', [ContentController::class, 'store'])->name('admin.content.store');
+            Route::post('/content/bulk', [ContentController::class, 'bulkStore'])->name('admin.content.bulkStore');
             Route::delete('/content/{id}', [ContentController::class, 'destroy'])->name('admin.content.destroy');
             Route::put('/content/{id}/rotate', [ContentController::class, 'rotate'])->name('admin.content.rotate');
             Route::get('/content/{id}/preview', [ContentPreviewController::class, 'show'])->name('admin.content.preview');
+
+            // Tags
+            Route::get('/tags', [TagController::class, 'index'])->name('admin.tags.index');
+            Route::post('/tags', [TagController::class, 'store'])->name('admin.tags.store');
+            Route::put('/tags/{id}', [TagController::class, 'update'])->name('admin.tags.update');
+            Route::delete('/tags/{id}', [TagController::class, 'destroy'])->name('admin.tags.destroy');
+
+            // Content-Tag assignment
+            Route::post('/content/{id}/tags', [ContentTagController::class, 'store'])->name('admin.content.tags.store');
+            Route::delete('/content/{id}/tags/{tagId}', [ContentTagController::class, 'destroy'])->name('admin.content.tags.destroy');
 
             // Analytics
             Route::get('/analytics/playback', [PlaybackAnalyticsController::class, 'index'])->name('admin.analytics.playback');
@@ -241,6 +274,9 @@ Route::prefix('admin')->group(function () {
 
             // Screen manifest
             Route::get('/screens/{id}/manifest', [ScreenController::class, 'manifest'])->name('admin.screens.manifest');
+
+            // Screen loop preview
+            Route::get('/screens/{id}/loop-preview', [LoopPreviewController::class, 'show'])->name('admin.screens.loop-preview');
 
             // Screen active order lines
             Route::get('/screens/{id}/active-order-lines', [ScreenController::class, 'activeOrderLines'])->name('admin.screens.activeOrderLines');

@@ -74,7 +74,6 @@ class OrderModelTest extends TestCase
             'ends_at' => '2026-08-15',
             'target_spots' => 1000,
             'delivery_pace' => 'uniform',
-            'share_weight' => 100,
             'status' => 'active',
         ]);
 
@@ -436,7 +435,6 @@ class OrderModelTest extends TestCase
             'starts_at' => '2026-08-20',
             'ends_at' => '2026-08-10', // ends before starts
             'delivery_pace' => 'uniform',
-            'share_weight' => 100,
             'status' => 'draft',
             'created_at' => now(),
             'updated_at' => now(),

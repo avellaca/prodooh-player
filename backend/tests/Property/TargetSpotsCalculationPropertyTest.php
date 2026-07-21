@@ -66,7 +66,6 @@ class TargetSpotsCalculationPropertyTest extends TestCase
                 'ends_at' => '2025-12-31',
                 'target_spots' => 0,
                 'delivery_pace' => 'uniform',
-                'share_weight' => 1,
                 'status' => 'draft',
             ]);
 
@@ -131,7 +130,6 @@ class TargetSpotsCalculationPropertyTest extends TestCase
                 'ends_at' => '2025-12-31',
                 'target_spots' => 0,
                 'delivery_pace' => 'uniform',
-                'share_weight' => 1,
                 'status' => 'draft',
             ]);
 
@@ -199,7 +197,6 @@ class TargetSpotsCalculationPropertyTest extends TestCase
                 'ends_at' => '2025-12-31',
                 'target_spots' => 0,
                 'delivery_pace' => 'uniform',
-                'share_weight' => 1,
                 'status' => 'draft',
             ]);
 

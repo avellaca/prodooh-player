@@ -36,7 +36,6 @@ class TargetSpotsCalculationTest extends TestCase
             'ends_at' => '2025-12-31',
             'target_spots' => 0, // will be overwritten
             'delivery_pace' => 'uniform',
-            'share_weight' => 1,
             'status' => 'draft',
         ]);
 
@@ -68,7 +67,6 @@ class TargetSpotsCalculationTest extends TestCase
             'ends_at' => '2025-12-31',
             'target_spots' => 0,
             'delivery_pace' => 'uniform',
-            'share_weight' => 1,
             'status' => 'draft',
         ]);
 
@@ -98,7 +96,6 @@ class TargetSpotsCalculationTest extends TestCase
             'ends_at' => '2025-12-31',
             'target_spots' => 0,
             'delivery_pace' => 'uniform',
-            'share_weight' => 1,
             'status' => 'draft',
         ]);
 
@@ -128,7 +125,6 @@ class TargetSpotsCalculationTest extends TestCase
             'ends_at' => '2025-12-31',
             'target_spots' => 5000,
             'delivery_pace' => 'uniform',
-            'share_weight' => 1,
             'status' => 'draft',
         ]);
 
@@ -158,7 +154,6 @@ class TargetSpotsCalculationTest extends TestCase
             'ends_at' => '2025-12-31',
             'target_spots' => 2000,
             'delivery_pace' => 'asap',
-            'share_weight' => 1,
             'status' => 'draft',
         ]);
 
@@ -188,7 +183,6 @@ class TargetSpotsCalculationTest extends TestCase
             'ends_at' => '2025-12-31',
             'target_spots' => 0,
             'delivery_pace' => 'uniform',
-            'share_weight' => 1,
             'status' => 'draft',
         ]);
 
@@ -228,7 +222,6 @@ class TargetSpotsCalculationTest extends TestCase
             'ends_at' => '2025-12-31',
             'target_spots' => 0,
             'delivery_pace' => 'uniform',
-            'share_weight' => 1,
             'status' => 'draft',
         ]);
 
@@ -265,7 +258,6 @@ class TargetSpotsCalculationTest extends TestCase
             'ends_at' => '2025-12-31',
             'target_spots' => 0,
             'delivery_pace' => 'uniform',
-            'share_weight' => 1,
             'status' => 'draft',
         ]);
 

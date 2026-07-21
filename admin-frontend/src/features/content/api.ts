@@ -1,8 +1,14 @@
 import { api } from '@/lib/axios';
-import type { Content } from '@/types/models';
+import type { Content, Tag } from '@/types/models';
 
 export interface UploadOptions {
   onUploadProgress?: (progress: number) => void;
+}
+
+export interface BulkUploadResult {
+  successes: Array<{ index: number; data: Content }>;
+  failures: Array<{ index: number; filename: string; errors: string[] }>;
+  summary: { total: number; successful: number; failed: number };
 }
 
 export const contentApi = {
@@ -32,4 +38,40 @@ export const contentApi = {
 
   getPreviewUrl: (id: string) =>
     api.get<{ data: { preview_url: string } }>(`/admin/content/${id}/preview`).then((r) => r.data.data.preview_url),
+
+  bulkUpload: (
+    files: File[],
+    tagIds: string[],
+    options?: { onUploadProgress?: (progress: number) => void },
+  ): Promise<BulkUploadResult> => {
+    const formData = new FormData();
+    files.forEach((file) => formData.append('files[]', file));
+    tagIds.forEach((id) => formData.append('tag_ids[]', id));
+
+    return api
+      .post<BulkUploadResult>('/admin/content/bulk', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (event) => {
+          if (options?.onUploadProgress && event.total) {
+            const percent = Math.round((event.loaded * 100) / event.total);
+            options.onUploadProgress(percent);
+          }
+        },
+      })
+      .then((r) => r.data);
+  },
+};
+
+export const tagsApi = {
+  list: () =>
+    api.get<{ data: Tag[] }>('/admin/tags').then((r) => r.data.data),
+
+  create: (name: string) =>
+    api.post<{ data: Tag }>('/admin/tags', { name }).then((r) => r.data.data),
+
+  assignToContent: (contentId: string, tagIds: string[]) =>
+    api.post<{ data: Tag[] }>(`/admin/content/${contentId}/tags`, { tag_ids: tagIds }).then((r) => r.data.data),
+
+  removeFromContent: (contentId: string, tagId: string) =>
+    api.delete(`/admin/content/${contentId}/tags/${tagId}`).then((r) => r.data),
 };

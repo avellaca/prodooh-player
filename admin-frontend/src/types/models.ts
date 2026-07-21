@@ -79,6 +79,13 @@ export interface PlaylistItem {
   content?: Content;
 }
 
+export interface Tag {
+  id: string;
+  tenant_id: string;
+  name: string;
+  created_at: string;
+}
+
 export interface Content {
   id: string;
   tenant_id: string;
@@ -92,6 +99,7 @@ export interface Content {
   orientation: string;
   rotation: number;
   created_at: string;
+  tags?: Tag[];
 }
 
 export interface Screenshot {

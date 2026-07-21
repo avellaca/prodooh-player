@@ -60,6 +60,7 @@ import { sumOrderLineSpots } from '../utils/orderline-calculations';
 import { AuditLogModal } from '@/features/audit';
 import { useTenant } from '@/features/tenants/hooks';
 import { api } from '@/lib/axios';
+import { TrackingPixelPanel } from '../components/TrackingPixelPanel';
 
 // ─── Status helpers ──────────────────────────────────────────────────────────
 
@@ -327,7 +328,6 @@ export default function OrderDetailPage() {
                   <TableHead>Ritmo de entrega</TableHead>
                   <TableHead>Spots</TableHead>
                   <TableHead>Entrega</TableHead>
-                  <TableHead>Peso</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
@@ -375,6 +375,13 @@ export default function OrderDetailPage() {
           </Card>
         )}
       </div>
+
+      {/* Tracking Pixels — Order level */}
+      <TrackingPixelPanel
+        trackableType="orders"
+        trackableId={order.id}
+        title="Tracking Pixels (Orden)"
+      />
 
       {/* Edit Order Dialog */}
       <EditOrderDialog
@@ -536,7 +543,6 @@ function OrderLineRow({ line, lineProgress, isTrafficker, onToggleStatus, onDele
           <span className="text-xs text-muted-foreground">—</span>
         )}
       </TableCell>
-      <TableCell>{line.share_weight}</TableCell>
       <TableCell>
         <Badge variant={STATUS_VARIANTS[line.status]}>
           {STATUS_LABELS[line.status]}

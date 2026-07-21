@@ -93,7 +93,6 @@ class LoopTemplateIntegrationTest extends TestCase
             'ends_at' => now()->addDays(30),
             'target_spots' => 100,
             'delivery_pace' => 'uniform',
-            'share_weight' => 5,
         ]);
 
         // 3. Create a target pointing to the screen
@@ -173,7 +172,6 @@ class LoopTemplateIntegrationTest extends TestCase
             'ends_at' => now()->addDays(30)->toDateString(),
             'target_spots' => 200,
             'delivery_pace' => 'uniform',
-            'share_weight' => 5,
             'status' => 'draft',
         ]);
         $lineResponse->assertCreated();

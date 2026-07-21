@@ -25,7 +25,6 @@ class SlotAllocatorTest extends TestCase
             'id' => fake()->uuid(),
             'priority_tier' => 'estandar',
             'delivery_pace' => 'uniform',
-            'share_weight' => 1,
             'slots_purchased' => null,
         ], $attrs);
     }
@@ -183,14 +182,14 @@ class SlotAllocatorTest extends TestCase
     {
         $lines = collect([
             $this->makeLine(['id' => 'e1', 'priority_tier' => 'estandar']),
-            $this->makeLine(['id' => 'ri1', 'priority_tier' => 'red_interna', 'share_weight' => 3]),
-            $this->makeLine(['id' => 'ri2', 'priority_tier' => 'red_interna', 'share_weight' => 1]),
+            $this->makeLine(['id' => 'ri1', 'priority_tier' => 'red_interna']),
+            $this->makeLine(['id' => 'ri2', 'priority_tier' => 'red_interna']),
         ]);
 
         $result = $this->allocator->allocate($lines, 5, 576);
 
         // Estandar gets 1 slot (position 0)
-        // Red_Interna fills remaining 4 slots proportional to weight (3:1 → 3 and 1)
+        // Red_Interna fills remaining 4 slots equally (weight=1 each → 2 and 2)
         $this->assertCount(5, $result);
         $this->assertEquals('e1', $result[0]->candidates[0]['order_line_id']);
 
@@ -206,9 +205,9 @@ class SlotAllocatorTest extends TestCase
             }
         }
 
-        // Weight 3:1 → ri1 should get 3, ri2 should get 1
-        $this->assertEquals(3, $ri1Count);
-        $this->assertEquals(1, $ri2Count);
+        // Equal weight → ri1 gets 2, ri2 gets 2
+        $this->assertEquals(2, $ri1Count);
+        $this->assertEquals(2, $ri2Count);
     }
 
     // ─── allocate: Red_Interna excluded when all slots taken ────────────────
@@ -243,15 +242,15 @@ class SlotAllocatorTest extends TestCase
             $this->makeLine(['id' => 'p1', 'priority_tier' => 'patrocinio', 'slots_purchased' => 1]),
             $this->makeLine(['id' => 'e1', 'priority_tier' => 'estandar']),
             $this->makeLine(['id' => 'e2', 'priority_tier' => 'estandar']),
-            $this->makeLine(['id' => 'ri1', 'priority_tier' => 'red_interna', 'share_weight' => 2]),
-            $this->makeLine(['id' => 'ri2', 'priority_tier' => 'red_interna', 'share_weight' => 1]),
+            $this->makeLine(['id' => 'ri1', 'priority_tier' => 'red_interna']),
+            $this->makeLine(['id' => 'ri2', 'priority_tier' => 'red_interna']),
         ]);
 
         $result = $this->allocator->allocate($lines, 7, 576);
 
         // Patrocinio: 1 slot (position 0)
         // Estandar: 2 lines, 6 remaining → each gets 1 slot (positions 1,2)
-        // Red_Interna: 4 remaining, weight 2:1 → ri1 gets ~2.67→3, ri2 gets ~1.33→1
+        // Red_Interna: 4 remaining, equal weight → ri1 gets 2, ri2 gets 2
         $this->assertCount(7, $result);
 
         $this->assertEquals('p1', $result[0]->candidates[0]['order_line_id']);
@@ -267,10 +266,10 @@ class SlotAllocatorTest extends TestCase
     {
         $lines = collect([
             $this->makeLine(['id' => 'p1', 'priority_tier' => 'patrocinio', 'slots_purchased' => 1]),
-            $this->makeLine(['id' => 'ri1', 'priority_tier' => 'red_interna', 'share_weight' => 1]),
-            $this->makeLine(['id' => 'ri2', 'priority_tier' => 'red_interna', 'share_weight' => 1]),
-            $this->makeLine(['id' => 'ri3', 'priority_tier' => 'red_interna', 'share_weight' => 1]),
-            $this->makeLine(['id' => 'ri4', 'priority_tier' => 'red_interna', 'share_weight' => 1]),
+            $this->makeLine(['id' => 'ri1', 'priority_tier' => 'red_interna']),
+            $this->makeLine(['id' => 'ri2', 'priority_tier' => 'red_interna']),
+            $this->makeLine(['id' => 'ri3', 'priority_tier' => 'red_interna']),
+            $this->makeLine(['id' => 'ri4', 'priority_tier' => 'red_interna']),
         ]);
 
         // 1 patrocinio slot + 4 red_interna lines into 2 remaining slots

@@ -13,6 +13,8 @@ import { useContent, useDeleteContent } from "../hooks";
 import { UploadDropzone } from "../components/UploadDropzone";
 import { ContentPreview } from "../components/ContentPreview";
 import { RotateMenu } from "../components/RotateMenu";
+import { TagManager } from "../components/TagManager";
+import { BulkUploadDialog } from "../components/BulkUploadDialog";
 import { useAuth } from "@/hooks/use-auth";
 import { useTenantContext } from "@/contexts/TenantContext";
 import type { Content } from "@/types/models";
@@ -71,6 +73,19 @@ export default function ContentPage() {
     {
       accessorKey: "filename",
       header: "Nombre",
+    },
+    {
+      id: "tags",
+      header: "Tags",
+      enableSorting: false,
+      cell: ({ row }) => {
+        const item = row.original;
+        return (
+          <div onClick={(e) => e.stopPropagation()}>
+            <TagManager contentId={item.id} assignedTags={item.tags ?? []} />
+          </div>
+        );
+      },
     },
     {
       accessorKey: "mime_type",
@@ -146,7 +161,10 @@ export default function ContentPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Biblioteca</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Biblioteca</h1>
+        {!needsTenant && <BulkUploadDialog />}
+      </div>
 
       <UploadDropzone
         onUploadSuccess={() => {}}

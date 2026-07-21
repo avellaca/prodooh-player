@@ -7,6 +7,10 @@ import type {
   ResolutionGroup,
   BulkCreativeInput,
   BulkCreativeResponse,
+  PlaybackMode,
+  TrackableType,
+  TrackingPixel,
+  TrackingPixelInput,
 } from './types';
 import type { Content } from '@/types/models';
 
@@ -52,7 +56,6 @@ export interface CreateOrderLineInput {
   ends_at: string;
   target_spots?: number | null;
   delivery_pace: 'asap' | 'uniform';
-  share_weight: number;
   status?: 'draft' | 'active' | 'paused' | 'finished';
   by_slot?: boolean;
   slots_purchased?: number | null;
@@ -65,8 +68,8 @@ export interface UpdateOrderLineInput {
   ends_at?: string;
   target_spots?: number | null;
   delivery_pace?: 'asap' | 'uniform';
-  share_weight?: number;
   status?: 'draft' | 'active' | 'paused' | 'finished';
+  playback_mode?: 'round_robin' | 'sequential';
   by_slot?: boolean;
   slots_purchased?: number | null;
 }
@@ -84,6 +87,10 @@ export interface UpdateCreativeInput {
 export interface CreateTargetInput {
   screen_id?: string | null;
   screen_group_id?: string | null;
+}
+
+export interface UpdateTargetInput {
+  playback_mode_override?: PlaybackMode | null;
 }
 
 export interface CommandPayload {
@@ -183,11 +190,20 @@ export const creativesApi = {
 
   delete: (id: string) =>
     api.delete(`/admin/creatives/${id}`),
+
+  reorder: (targetId: string, creativeIds: string[]) =>
+    api.post<{ data: Creative[] }>(
+      `/admin/order-line-targets/${targetId}/creatives/reorder`,
+      { creative_ids: creativeIds },
+    ).then((r) => r.data.data),
 };
 
 export const targetsApi = {
   create: (orderLineId: string, data: CreateTargetInput) =>
     api.post<{ data: OrderLineTarget }>(`/admin/order-lines/${orderLineId}/targets`, data).then((r) => r.data.data),
+
+  update: (id: string, data: UpdateTargetInput) =>
+    api.put<{ data: OrderLineTarget }>(`/admin/order-line-targets/${id}`, data).then((r) => r.data.data),
 
   delete: (id: string) =>
     api.delete(`/admin/order-line-targets/${id}`),
@@ -218,4 +234,101 @@ export const contentApi = {
     const query = params.toString() ? `?${params.toString()}` : '';
     return api.get<{ data: Content[] }>(`/admin/content${query}`).then((r) => r.data.data);
   },
+
+  /** List all content for the tenant (no resolution filter) with tags included */
+  listAll: () =>
+    api.get<{ data: Content[] }>('/admin/content').then((r) => r.data.data),
+};
+
+// ─── Bulk Assign (Auto-Matching) ─────────────────────────────────────────────
+
+export interface BulkAssignInput {
+  content_ids: string[];
+  weight: number;
+}
+
+export interface BulkAssignUnmatchedContent {
+  id: string;
+  width: number;
+  height: number;
+}
+
+export interface BulkAssignResponse {
+  created: number;
+  unmatched_contents: BulkAssignUnmatchedContent[];
+  covered_screens: string[];
+}
+
+export const bulkAssignApi = {
+  assign: (orderLineId: string, data: BulkAssignInput) =>
+    api.post<{ data: BulkAssignResponse }>(
+      `/admin/order-lines/${orderLineId}/creatives/bulk-assign`,
+      data,
+    ).then((r) => r.data.data),
+};
+
+// ─── Loop Preview ────────────────────────────────────────────────────────────
+
+export interface LoopPreviewSlot {
+  position: number;
+  type: 'ad' | 'ssp' | 'playlist';
+  duration_seconds: number;
+  strategy: 'fixed' | 'round_robin' | 'sequential';
+  candidates: LoopPreviewCandidate[];
+}
+
+export interface LoopPreviewCandidate {
+  creative_id: string;
+  content_id: string;
+  filename: string;
+  mime_type: string | null;
+  weight: number;
+  position: number | null;
+  duration_seconds: number | null;
+  thumbnail_url: string | null;
+}
+
+export interface LoopPreviewResponse {
+  screen_id: string;
+  screen_name: string;
+  playback_mode: 'round_robin' | 'sequential';
+  total_duration_seconds: number;
+  slots: LoopPreviewSlot[];
+}
+
+export const loopPreviewApi = {
+  get: (screenId: string) =>
+    api.get<{ data: LoopPreviewResponse }>(`/admin/screens/${screenId}/loop-preview`).then((r) => r.data.data),
+};
+
+// ─── Copy Creatives ──────────────────────────────────────────────────────────
+
+export interface CopyCreativesResponse {
+  created: number;
+  skipped: number;
+  covered_screens: string[];
+}
+
+export const copyCreativesApi = {
+  copy: (sourceLineId: string, targetLineId: string) =>
+    api.post<{ data: CopyCreativesResponse }>(
+      `/admin/order-lines/${sourceLineId}/copy-creatives`,
+      { target_order_line_id: targetLineId },
+    ).then((r) => r.data.data),
+};
+
+// ─── Tracking Pixels ─────────────────────────────────────────────────────────
+
+export const trackingPixelsApi = {
+  list: (trackableType: TrackableType, trackableId: string) =>
+    api.get<{ data: TrackingPixel[] }>(`/admin/${trackableType}/${trackableId}/tracking-pixels`).then((r) => r.data.data),
+
+  create: (trackableType: TrackableType, trackableId: string, data: TrackingPixelInput) =>
+    api.post<{ data: TrackingPixel }>(`/admin/${trackableType}/${trackableId}/tracking-pixels`, data).then((r) => r.data.data),
+
+  update: (id: string, data: Partial<TrackingPixelInput>) =>
+    api.put<{ data: TrackingPixel }>(`/admin/tracking-pixels/${id}`, data).then((r) => r.data.data),
+
+  delete: (id: string) =>
+    api.delete(`/admin/tracking-pixels/${id}`),
 };

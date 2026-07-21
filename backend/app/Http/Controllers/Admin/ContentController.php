@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Content;
 use App\Models\Creative;
 use App\Models\PlaylistItem;
+use App\Models\Tag;
 use App\Services\ContentLibraryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,7 +27,7 @@ class ContentController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Content::orderBy('created_at', 'desc');
+        $query = Content::with('tags')->orderBy('created_at', 'desc');
 
         if ($request->has('width') && $request->has('height')) {
             $width = (int) $request->input('width');
@@ -80,6 +81,103 @@ class ContentController extends Controller
             'data' => $result['content'],
             'message' => 'Contenido subido exitosamente.',
         ], 201);
+    }
+
+    /**
+     * Bulk upload up to 50 files with optional tag assignment.
+     * Returns 207 Multi-Status with per-file results.
+     *
+     * POST /api/admin/content/bulk
+     */
+    public function bulkStore(Request $request): JsonResponse
+    {
+        $request->validate([
+            'files' => ['required', 'array', 'min:1', 'max:50'],
+            'files.*' => ['required', 'file'],
+            'tag_ids' => ['sometimes', 'array'],
+            'tag_ids.*' => ['string', 'uuid', 'exists:tags,id'],
+        ], [
+            'files.required' => 'Se requiere al menos un archivo.',
+            'files.max' => 'Se permiten máximo 50 archivos por lote.',
+            'files.*.file' => 'Cada elemento debe ser un archivo válido.',
+            'tag_ids.*.uuid' => 'Cada tag_id debe ser un UUID válido.',
+            'tag_ids.*.exists' => 'Uno o más tags no existen.',
+        ]);
+
+        $user = $request->user();
+        $tenantId = $user->tenant_id;
+
+        // Super-admin must specify a tenant
+        if ($user->isSuperAdmin()) {
+            $tenantId = $request->input('tenant_id') ?? $request->query('tenant_id');
+            if (!$tenantId) {
+                return response()->json([
+                    'message' => 'La validación del contenido falló.',
+                    'errors' => ['tenant_id' => ['Debe seleccionar un network antes de subir contenido.']],
+                ], 422);
+            }
+        }
+
+        // Validate that provided tags belong to the same tenant
+        $tagIds = $request->input('tag_ids', []);
+        if (!empty($tagIds)) {
+            $validTagCount = Tag::where('tenant_id', $tenantId)
+                ->whereIn('id', $tagIds)
+                ->count();
+
+            if ($validTagCount !== count($tagIds)) {
+                return response()->json([
+                    'message' => 'La validación del contenido falló.',
+                    'errors' => ['tag_ids' => ['Uno o más tags no pertenecen al tenant actual.']],
+                ], 422);
+            }
+        }
+
+        $files = $request->file('files');
+        $successes = [];
+        $failures = [];
+
+        foreach ($files as $index => $file) {
+            try {
+                $result = $this->contentLibraryService->upload($file, $tenantId);
+
+                if ($result['content'] === null) {
+                    $failures[] = [
+                        'index' => $index,
+                        'filename' => $file->getClientOriginalName(),
+                        'errors' => $result['validation']->errors,
+                    ];
+
+                    continue;
+                }
+
+                // Associate tags with the uploaded content
+                if (!empty($tagIds)) {
+                    $result['content']->tags()->sync($tagIds);
+                }
+
+                $successes[] = [
+                    'index' => $index,
+                    'data' => $result['content']->load('tags'),
+                ];
+            } catch (\Throwable $e) {
+                $failures[] = [
+                    'index' => $index,
+                    'filename' => $file->getClientOriginalName(),
+                    'errors' => [$e->getMessage()],
+                ];
+            }
+        }
+
+        return response()->json([
+            'successes' => $successes,
+            'failures' => $failures,
+            'summary' => [
+                'total' => count($files),
+                'successful' => count($successes),
+                'failed' => count($failures),
+            ],
+        ], 207);
     }
 
     /**
